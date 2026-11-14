@@ -230,7 +230,11 @@ func build_stage(index: int, offset: float, transition: bool) -> void:
 	for rect: Rect2 in data["platforms"]:
 		create_platform(rect.translated(Vector2(offset, 0.0)))
 	for platform_data: Dictionary in data["moving"]:
-		create_platform(platform_data["rect"].translated(Vector2(offset, 0.0)), true, platform_data["travel"])
+		create_platform(
+			platform_data["rect"].translated(Vector2(offset, 0.0)),
+			true,
+			platform_data["travel"]
+		)
 	for rect: Rect2 in data["hazards"]:
 		create_hazard(rect.translated(Vector2(offset, 0.0)))
 	var portal = GOAL_SCRIPT.new()
