@@ -9,6 +9,7 @@ const MOVING_SCRIPT = preload("res://scripts/moving_platform.gd")
 const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
 const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const VIEW := Vector2(1152, 648)
+const PLAYER_SCREEN_X := 90.0
 const POWERUPS := [
 	{"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0, "dash": 0.0},
 	{"name": "COMET DASH", "description": "A strong rebound and forward burst carry you across gaps.", "color": "ff9b67", "bounce": 650.0, "dash": 490.0},
@@ -67,7 +68,7 @@ func _process(delta: float) -> void:
 	if state == "playing":
 		elapsed += delta
 		if is_instance_valid(player):
-			camera.position.x = maxf(0.0, player.global_position.x - 300.0)
+			camera.position.x = player.global_position.x + VIEW.x * 0.5 - PLAYER_SCREEN_X
 			furthest_x = maxf(furthest_x, player.global_position.x)
 	if message_timeout > 0.0:
 		message_timeout -= delta
@@ -80,7 +81,7 @@ func _process(delta: float) -> void:
 			respawn_card.visible = false
 			if is_instance_valid(player) and state == "playing":
 				player.active = true
-				activate_powerup()
+				show_powerup_prompt()
 	update_stats()
 
 func create_background() -> void:
@@ -175,7 +176,7 @@ func show_overlay(title: String, subtitle: String, instruction: String) -> void:
 
 func show_menu() -> void:
 	state = "menu"
-	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nEvery stage flows into the next. Reach each portal to set a checkpoint.\nA fall grants a new boost: SKYBOUND • COMET DASH • PRISM KICK", "A / D OR ARROWS TO MOVE   •   SPACE TO JUMP   •   PRESS SPACE TO BEGIN")
+	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nEvery stage flows into the next. Reach each portal to set a checkpoint.\nA fall grants a boost—press P whenever you want to use it.\nSKYBOUND • COMET DASH • PRISM KICK", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE BOOST AFTER A FALL")
 
 func resume_game() -> void:
 	state = "playing"
@@ -183,8 +184,8 @@ func resume_game() -> void:
 	hud.visible = true
 	if is_instance_valid(player):
 		player.active = respawn_timer <= 0.0
-		if player.active:
-			activate_powerup()
+		if player.active and not current_powerup.is_empty():
+			show_powerup_prompt()
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key_event := event as InputEventKey
@@ -196,6 +197,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			show_overlay("PAUSED", "Keep moving forward.", "PRESS SPACE TO RESUME")
 		elif state == "paused":
 			resume_game()
+		return
+	if key_event.keycode == KEY_P:
+		if state == "playing":
+			activate_powerup()
 		return
 	if not key_event.is_action_pressed("ui_accept"):
 		return
@@ -221,7 +226,7 @@ func build_level(index: int) -> void:
 	player.modulate = Color(current_theme["player_tint"])
 	# Level geometry is authored in a 1152x648 world-space viewport, with the
 	# platforms and player around y=450-570. Keep that area inside the camera.
-	camera.position = Vector2(0.0, VIEW.y * 0.5)
+	camera.position = Vector2(level_spawn.x + VIEW.x * 0.5 - PLAYER_SCREEN_X, VIEW.y * 0.5)
 	update_stats()
 
 func build_stage(index: int, offset: float, transition: bool) -> void:
@@ -397,7 +402,7 @@ func finish_respawn(_safe_position: Vector2) -> void:
 	respawn_timer = 1.6
 
 func activate_powerup() -> void:
-	if current_powerup.is_empty() or not is_instance_valid(player):
+	if state != "playing" or current_powerup.is_empty() or not is_instance_valid(player) or not player.active:
 		return
 	var direction := signf(Input.get_axis("ui_left", "ui_right"))
 	if direction == 0.0:
@@ -408,6 +413,12 @@ func activate_powerup() -> void:
 	message_label.text = current_powerup["name"] + " BOOST!"
 	message_timeout = 1.5
 	current_powerup.clear()
+
+func show_powerup_prompt() -> void:
+	if current_powerup.is_empty():
+		return
+	message_label.text = "PRESS P TO USE " + current_powerup["name"]
+	message_timeout = 0.0
 
 func on_goal_reached() -> void:
 	if state == "playing":
