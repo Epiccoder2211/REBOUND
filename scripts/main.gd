@@ -3,29 +3,36 @@ extends Node2D
 ## No external art/assets needed. All platforms and effects are drawn in code.
 
 const PLAYER_SCRIPT = preload("res://scripts/player.gd")
-const SPRING_SCRIPT = preload("res://scripts/spring.gd")
 const GOAL_SCRIPT = preload("res://scripts/goal.gd")
 const HAZARD_SCRIPT = preload("res://scripts/hazard.gd")
 const MOVING_SCRIPT = preload("res://scripts/moving_platform.gd")
 const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
 const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const VIEW := Vector2(1152, 648)
-const MAX_SPRINGS := 3
+const POWERUPS := [
+	{"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0, "dash": 0.0},
+	{"name": "COMET DASH", "description": "A strong rebound and forward burst carry you across gaps.", "color": "ff9b67", "bounce": 650.0, "dash": 490.0},
+	{"name": "PRISM KICK", "description": "A balanced hop with a quick forward surge.", "color": "dc8cff", "bounce": 700.0, "dash": 380.0}
+]
 
 var world: Node2D
 var player
 var levels: Array = []
-var level_index := 0
-var state := "menu" # menu, playing, paused, level_done, victory
+var stage_index := 0
+var stage_offset := 0.0
+var run_start_x := 0.0
+var furthest_x := 0.0
+var state := "menu" # menu, playing, paused
 var level_spawn := Vector2.ZERO
-var springs: Array[Node2D] = []
 var falls := 0
-var total_springs := 0
 var elapsed := 0.0
 var message_timeout := 0.0
 var respawn_timer := 0.0
 var background_material: ShaderMaterial
 var current_theme: Dictionary = {}
+var camera: Camera2D
+var current_powerup: Dictionary = {}
+var theme_tween: Tween
 
 var hud: Control
 var info_label: Label
@@ -46,6 +53,12 @@ func _ready() -> void:
 	world = Node2D.new()
 	world.name = "LevelWorld"
 	add_child(world)
+	camera = Camera2D.new()
+	camera.name = "FollowCamera"
+	camera.position_smoothing_enabled = true
+	camera.position_smoothing_speed = 5.0
+	add_child(camera)
+	camera.make_current()
 	create_ui()
 	build_level(0)
 	show_menu()
@@ -53,6 +66,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if state == "playing":
 		elapsed += delta
+		if is_instance_valid(player):
+			camera.position.x = maxf(0.0, player.global_position.x - 300.0)
+			furthest_x = maxf(furthest_x, player.global_position.x)
 	if message_timeout > 0.0:
 		message_timeout -= delta
 		if message_timeout <= 0.0:
@@ -64,9 +80,14 @@ func _process(delta: float) -> void:
 			respawn_card.visible = false
 			if is_instance_valid(player) and state == "playing":
 				player.active = true
+				activate_powerup()
 	update_stats()
 
 func create_background() -> void:
+	var background_layer := CanvasLayer.new()
+	background_layer.name = "Background"
+	background_layer.layer = -1
+	add_child(background_layer)
 	var background := ColorRect.new()
 	background.name = "NebulaBackground"
 	background.size = VIEW
@@ -74,7 +95,7 @@ func create_background() -> void:
 	background_material = ShaderMaterial.new()
 	background_material.shader = BACKGROUND_SHADER
 	background.material = background_material
-	add_child(background)
+	background_layer.add_child(background)
 
 func create_ui() -> void:
 	var layer := CanvasLayer.new()
@@ -85,7 +106,7 @@ func create_ui() -> void:
 	hud.name = "HUD"
 	layer.add_child(hud)
 	info_label = make_label(hud, "", Vector2(24, 17), Vector2(560, 36), 22, Color("e4f2ff"))
-	stats_label = make_label(hud, "", Vector2(775, 20), Vector2(345, 30), 19, Color("ffd67f"))
+	stats_label = make_label(hud, "", Vector2(700, 20), Vector2(420, 30), 17, Color("ffd67f"))
 	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	tip_label = make_label(hud, "", Vector2(32, 606), Vector2(1090, 30), 18, Color("aab9df"))
 	tip_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -100,17 +121,17 @@ func create_ui() -> void:
 	layer.add_child(shade)
 	screen_title = make_label(shade, "", Vector2(80, 167), Vector2(992, 95), 70, Color("6deaff"))
 	screen_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	screen_subtitle = make_label(shade, "", Vector2(120, 295), Vector2(912, 90), 23, Color("d9d7f5"))
+	screen_subtitle = make_label(shade, "", Vector2(120, 276), Vector2(912, 155), 21, Color("d9d7f5"))
 	screen_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	screen_subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	screen_instruction = make_label(shade, "", Vector2(130, 480), Vector2(892, 62), 23, Color("ffdc86"))
+	screen_instruction = make_label(shade, "", Vector2(130, 495), Vector2(892, 62), 23, Color("ffdc86"))
 	screen_instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var title_font := SystemFont.new()
 	title_font.font_names = PackedStringArray(["Avenir Next", "Avenir", "Helvetica Neue"])
 	screen_title.add_theme_font_override("font", title_font)
 	respawn_card = PanelContainer.new()
-	respawn_card.position = Vector2(376, 250)
-	respawn_card.size = Vector2(400, 132)
+	respawn_card.position = Vector2(336, 244)
+	respawn_card.size = Vector2(480, 150)
 	respawn_card.visible = false
 	var card_style := StyleBoxFlat.new()
 	card_style.bg_color = Color(0.035, 0.055, 0.12, 0.94)
@@ -124,10 +145,10 @@ func create_ui() -> void:
 	card_content.alignment = BoxContainer.ALIGNMENT_CENTER
 	card_content.add_theme_constant_override("separation", 7)
 	respawn_card.add_child(card_content)
-	respawn_title = make_label(card_content, "REBOUND", Vector2.ZERO, Vector2(360, 38), 27, Color("73eaff"))
+	respawn_title = make_label(card_content, "POWER UP", Vector2.ZERO, Vector2(440, 38), 25, Color("73eaff"))
 	respawn_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	respawn_title.add_theme_font_override("font", title_font)
-	respawn_subtitle = make_label(card_content, "A NEW SPRING TAKES SHAPE", Vector2.ZERO, Vector2(360, 28), 14, Color("e4e6ff"))
+	respawn_subtitle = make_label(card_content, "A NEW BOOST IS READY", Vector2.ZERO, Vector2(440, 36), 14, Color("e4e6ff"))
 	respawn_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var subtitle_font := SystemFont.new()
 	subtitle_font.font_names = PackedStringArray(["Georgia", "Times New Roman"])
@@ -154,7 +175,7 @@ func show_overlay(title: String, subtitle: String, instruction: String) -> void:
 
 func show_menu() -> void:
 	state = "menu"
-	show_overlay("R E B O U N D", "THE ART OF FALLING FORWARD\n\nWhen you fall, your last safe step becomes a spring.", "PRESS SPACE OR ENTER TO BEGIN")
+	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nEvery stage flows into the next. Reach each portal to set a checkpoint.\nA fall grants a new boost: SKYBOUND • COMET DASH • PRISM KICK", "A / D OR ARROWS TO MOVE   •   SPACE TO JUMP   •   PRESS SPACE TO BEGIN")
 
 func resume_game() -> void:
 	state = "playing"
@@ -162,81 +183,92 @@ func resume_game() -> void:
 	hud.visible = true
 	if is_instance_valid(player):
 		player.active = respawn_timer <= 0.0
-	message_label.text = ""
+		if player.active:
+			activate_powerup()
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key_event := event as InputEventKey
-	if key_event == null:
+	if key_event == null or not key_event.pressed or key_event.echo:
 		return
-	if not key_event.pressed or key_event.echo:
-		return
-
 	if key_event.keycode == KEY_ESCAPE:
 		if state == "playing":
 			state = "paused"
-			show_overlay("PAUSED", "Every setback is an opportunity.", "PRESS SPACE TO RESUME")
+			show_overlay("PAUSED", "Keep moving forward.", "PRESS SPACE TO RESUME")
 		elif state == "paused":
 			resume_game()
 		return
-
 	if not key_event.is_action_pressed("ui_accept"):
 		return
-	match state:
-		"menu", "paused":
-			resume_game()
-		"level_done":
-			build_level(level_index + 1)
-			resume_game()
-		"victory":
-			falls = 0
-			total_springs = 0
-			elapsed = 0.0
-			build_level(0)
-			resume_game()
+	if state == "menu" or state == "paused":
+		resume_game()
 
 func build_level(index: int) -> void:
-	level_index = index
-	springs.clear()
+	stage_index = index
+	stage_offset = 0.0
 	for item in world.get_children():
 		world.remove_child(item)
 		item.queue_free()
-	var data: Dictionary = levels[level_index]
-	current_theme = data["theme"]
-	apply_level_theme(current_theme)
-	level_spawn = data["spawn"]
-
-	for rect in data["platforms"]:
-		create_platform(rect)
-	for platform_data in data["moving"]:
-		create_platform(platform_data["rect"], true, platform_data["travel"])
-	for rect in data["hazards"]:
-		create_hazard(rect)
-
 	player = PLAYER_SCRIPT.new()
 	world.add_child(player)
-	player.modulate = Color(current_theme["player_tint"])
+	player.died.connect(on_player_died)
+	run_start_x = 0.0
+	furthest_x = 0.0
+	falls = 0
+	current_powerup.clear()
+	build_stage(stage_index, stage_offset, false)
 	player.global_position = level_spawn
 	player.safe_position = level_spawn
-	player.died.connect(on_player_died)
+	player.modulate = Color(current_theme["player_tint"])
+	camera.position = Vector2.ZERO
+	update_stats()
 
+func build_stage(index: int, offset: float, transition: bool) -> void:
+	var data: Dictionary = levels[index % levels.size()]
+	current_theme = data["theme"]
+	apply_level_theme(current_theme, transition)
+	level_spawn = data["spawn"] + Vector2(offset, 0.0)
+	for rect: Rect2 in data["platforms"]:
+		create_platform(rect.translated(Vector2(offset, 0.0)))
+	for platform_data: Dictionary in data["moving"]:
+		create_platform(platform_data["rect"].translated(Vector2(offset, 0.0)), true, platform_data["travel"])
+	for rect: Rect2 in data["hazards"]:
+		create_hazard(rect.translated(Vector2(offset, 0.0)))
 	var portal = GOAL_SCRIPT.new()
-	portal.position = data["goal"]
+	portal.position = data["goal"] + Vector2(offset, 0.0)
 	world.add_child(portal)
 	portal.reached.connect(on_goal_reached)
 	tip_label.text = data["tip"]
 	message_label.text = ""
 	update_stats()
 
-func apply_level_theme(theme: Dictionary) -> void:
-	background_material.set_shader_parameter("upper_color", Color(theme["background_upper"]))
-	background_material.set_shader_parameter("horizon_color", Color(theme["background_horizon"]))
-	background_material.set_shader_parameter("floor_color", Color(theme["background_floor"]))
-	background_material.set_shader_parameter("cloud_color", Color(theme["cloud_color"]))
-	background_material.set_shader_parameter("first_bloom_color", Color(theme["bloom_one"]))
-	background_material.set_shader_parameter("second_bloom_color", Color(theme["bloom_two"]))
-	background_material.set_shader_parameter("atmosphere_strength", theme["atmosphere_strength"])
-	background_material.set_shader_parameter("star_strength", theme["star_strength"])
-	background_material.set_shader_parameter("flow_speed", theme["flow_speed"])
+func remove_stage_geometry() -> void:
+	for item in world.get_children():
+		if item != player:
+			world.remove_child(item)
+			item.queue_free()
+
+func apply_level_theme(theme: Dictionary, animate: bool = false) -> void:
+	var color_parameters := {
+		"upper_color": "background_upper", "horizon_color": "background_horizon",
+		"floor_color": "background_floor", "cloud_color": "cloud_color",
+		"first_bloom_color": "bloom_one", "second_bloom_color": "bloom_two"
+	}
+	var number_parameters := {
+		"atmosphere_strength": "atmosphere_strength", "star_strength": "star_strength", "flow_speed": "flow_speed"
+	}
+	if theme_tween and theme_tween.is_running():
+		theme_tween.kill()
+	if animate:
+		theme_tween = create_tween().set_parallel(true)
+		for parameter: String in color_parameters:
+			theme_tween.tween_property(background_material, "shader_parameter/" + parameter, Color(theme[color_parameters[parameter]]), 1.15)
+		for parameter: String in number_parameters:
+			theme_tween.tween_property(background_material, "shader_parameter/" + parameter, theme[number_parameters[parameter]], 1.15)
+	else:
+		for parameter: String in color_parameters:
+			background_material.set_shader_parameter(parameter, Color(theme[color_parameters[parameter]]))
+		for parameter: String in number_parameters:
+			background_material.set_shader_parameter(parameter, theme[number_parameters[parameter]])
 	var card_style := StyleBoxFlat.new()
 	card_style.bg_color = Color(theme["background_floor"])
 	card_style.border_color = Color(theme["platform_accent"])
@@ -322,6 +354,18 @@ func create_hazard(rect: Rect2) -> void:
 	hazard.position = rect.position + rect.size * 0.5
 	hazard.hazard_size = rect.size
 	world.add_child(hazard)
+	var spike_count := maxi(1, int(rect.size.x / 16.0))
+	var spike_width := rect.size.x / float(spike_count)
+	for spike_index in range(spike_count):
+		var spike := Polygon2D.new()
+		spike.position.x = -rect.size.x * 0.5 + spike_width * (float(spike_index) + 0.5)
+		spike.polygon = PackedVector2Array([
+			Vector2(-spike_width * 0.5, rect.size.y * 0.5),
+			Vector2(spike_width * 0.5, rect.size.y * 0.5),
+			Vector2(0.0, -rect.size.y * 0.5)
+		])
+		spike.color = Color("ffacc6")
+		hazard.add_child(spike)
 
 func on_player_died(safe_position: Vector2) -> void:
 	if state != "playing":
@@ -329,55 +373,60 @@ func on_player_died(safe_position: Vector2) -> void:
 	# Defer physics-body changes so that Area2D collision callbacks stay safe.
 	call_deferred("finish_respawn", safe_position)
 
-func finish_respawn(safe_position: Vector2) -> void:
+func finish_respawn(_safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
-	var placement := safe_position + Vector2(0, 7)
-	var already_here := false
-	for spring in springs:
-		if is_instance_valid(spring) and spring.position.distance_to(placement) < 42.0:
-			already_here = true
-			break
-	if not already_here:
-		var spring = SPRING_SCRIPT.new()
-		spring.position = placement
-		world.add_child(spring)
-		springs.append(spring)
-		total_springs += 1
-		if springs.size() > MAX_SPRINGS:
-			var oldest = springs.pop_front()
-			oldest.queue_free()
+	current_powerup = POWERUPS[(falls - 1) % POWERUPS.size()]
 	player.respawn(level_spawn)
 	player.active = false
+	player.modulate = Color(current_powerup["color"])
 	message_label.text = ""
 	message_timeout = 0.0
-	respawn_title.text = "REBOUND"
-	respawn_subtitle.text = "A NEW SPRING TAKES SHAPE"
+	respawn_title.text = "POWER UP: " + current_powerup["name"]
+	respawn_subtitle.text = current_powerup["description"]
 	respawn_card.visible = true
 	respawn_card.modulate.a = 0.0
 	respawn_timer = 1.6
 
+func activate_powerup() -> void:
+	if current_powerup.is_empty() or not is_instance_valid(player):
+		return
+	var direction := signf(Input.get_axis("ui_left", "ui_right"))
+	if direction == 0.0:
+		direction = 1.0
+	player.bounce(current_powerup["bounce"])
+	if current_powerup["dash"] > 0.0:
+		player.velocity.x = direction * current_powerup["dash"]
+	message_label.text = current_powerup["name"] + " BOOST!"
+	message_timeout = 1.5
+	current_powerup.clear()
+
 func on_goal_reached() -> void:
 	if state == "playing":
-		call_deferred("finish_level")
+		call_deferred("advance_stage")
 
-func finish_level() -> void:
+func advance_stage() -> void:
 	if state != "playing":
 		return
-	if level_index == levels.size() - 1:
-		state = "victory"
-		var duration := "%02d:%02d" % [int(elapsed) / 60, int(elapsed) % 60]
-		show_overlay("YOU BOUNCED BACK.", "Every fall became part of your way forward.\n\nFalls: %d    Springs created: %d    Time: %s" % [falls, total_springs, duration], "PRESS SPACE TO PLAY AGAIN")
-	else:
-		state = "level_done"
-		show_overlay("LEVEL COMPLETE", "You didn't just try again.\nYou built a better way forward.", "PRESS SPACE FOR LEVEL %d" % (level_index + 2))
+	var old_data: Dictionary = levels[stage_index % levels.size()]
+	stage_index += 1
+	var next_data: Dictionary = levels[stage_index % levels.size()]
+	stage_offset += old_data["goal"].x - next_data["spawn"].x + 120.0
+	remove_stage_geometry()
+	build_stage(stage_index, stage_offset, true)
+	player.respawn(level_spawn)
+	message_label.text = "CHECKPOINT  •  STAGE %d" % (stage_index + 1)
+	message_timeout = 2.0
+	update_stats()
 
 func update_stats() -> void:
 	if levels.is_empty():
 		return
-	info_label.text = "LEVEL %d / %d   •   %s" % [level_index + 1, levels.size(), levels[level_index]["title"]]
-	stats_label.text = "FALLS  %d     SPRINGS  %d" % [falls, total_springs]
+	var data: Dictionary = levels[stage_index % levels.size()]
+	info_label.text = "STAGE %d   •   %s" % [stage_index + 1, data["title"]]
+	var meters := int(maxf(0.0, furthest_x - run_start_x) / 100.0)
+	stats_label.text = "METERS  %05d     FALLS  %d" % [meters, falls]
 
 func make_levels() -> Array:
 	return [
@@ -393,11 +442,11 @@ func make_levels() -> Array:
 				"platform_moving_accent": "b1eeff", "platform_moving_rivet": "e1f4ff", "player_tint": "d7f3ff"
 			},
 			"spawn": Vector2(90, 542),
-			"goal": Vector2(940, 490),
-			"platforms": [Rect2(0, 570, 360, 78), Rect2(590, 525, 562, 123)],
+			"goal": Vector2(1055, 418),
+			"platforms": [Rect2(0, 570, 300, 78), Rect2(370, 530, 180, 24), Rect2(610, 490, 180, 24), Rect2(850, 450, 302, 198)],
 			"moving": [],
 			"hazards": [],
-			"tip": "A / D OR ARROWS: MOVE    •    SPACE: JUMP    •    FALL TO CREATE A SPRING"
+			"tip": "A / D OR ARROWS: MOVE    •    SPACE: JUMP    •    REACH THE PORTAL FOR A CHECKPOINT"
 		},
 		{
 			"title": "HIGHER THAN BEFORE",
@@ -411,11 +460,11 @@ func make_levels() -> Array:
 				"platform_moving_accent": "ffd27b", "platform_moving_rivet": "fff0c1", "player_tint": "ffd5c8"
 			},
 			"spawn": Vector2(95, 550),
-			"goal": Vector2(1040, 244),
-			"platforms": [Rect2(0, 578, 355, 70), Rect2(465, 418, 235, 24), Rect2(795, 275, 357, 28)],
+			"goal": Vector2(1060, 378),
+			"platforms": [Rect2(0, 570, 270, 78), Rect2(330, 530, 160, 24), Rect2(540, 490, 160, 24), Rect2(750, 450, 160, 24), Rect2(960, 410, 192, 238)],
 			"moving": [],
-			"hazards": [],
-			"tip": "USE EACH FALL TO BUILD YOUR WAY UP. ONLY THREE SPRINGS STAY AT ONCE."
+			"hazards": [Rect2(600, 450, 46, 10)],
+			"tip": "SMALL, REGULAR JUMPS ARE ENOUGH. THE GLOWING BEAMS ARE DANGEROUS."
 		},
 		{
 			"title": "SHATTERED RHYTHM",
@@ -429,11 +478,11 @@ func make_levels() -> Array:
 				"platform_moving_accent": "ff6477", "platform_moving_rivet": "ffd4d9", "player_tint": "baffdf"
 			},
 			"spawn": Vector2(95, 542),
-			"goal": Vector2(1070, 282),
-			"platforms": [Rect2(0, 570, 310, 78), Rect2(810, 321, 342, 28)],
-			"moving": [{"rect": Rect2(465, 446, 220, 24), "travel": 65.0}],
-			"hazards": [Rect2(680, 575, 120, 22)],
-			"tip": "MOVING PLATFORMS AND HAZARDS! TIME YOUR BOUNCES."
+			"goal": Vector2(1060, 378),
+			"platforms": [Rect2(0, 570, 270, 78), Rect2(330, 530, 160, 24), Rect2(750, 450, 160, 24), Rect2(960, 410, 192, 238)],
+			"moving": [{"rect": Rect2(548, 490, 144, 24), "travel": 18.0}],
+			"hazards": [Rect2(574, 438, 72, 10), Rect2(810, 410, 42, 10)],
+			"tip": "WATCH FOR SPIKE BEAMS ABOVE THE PLATFORMS. LAND, THEN JUMP AGAIN."
 		},
 		{
 			"title": "THE FRACTURE",
@@ -447,10 +496,10 @@ func make_levels() -> Array:
 				"platform_moving_accent": "fff4b0", "platform_moving_rivet": "ffffff", "player_tint": "fff0bd"
 			},
 			"spawn": Vector2(75, 556),
-			"goal": Vector2(1080, 163),
-			"platforms": [Rect2(0, 585, 282, 63), Rect2(380, 454, 176, 24), Rect2(630, 323, 180, 24), Rect2(896, 194, 256, 25)],
+			"goal": Vector2(1060, 378),
+			"platforms": [Rect2(0, 570, 270, 78), Rect2(330, 530, 160, 24), Rect2(540, 490, 160, 24), Rect2(750, 450, 160, 24), Rect2(960, 410, 192, 238)],
 			"moving": [],
-			"hazards": [],
-			"tip": "THE FINAL CLIMB. EVERY SETBACK BRINGS YOU CLOSER TO THE LIGHT."
+			"hazards": [Rect2(396, 478, 48, 10), Rect2(852, 398, 48, 10)],
+			"tip": "FOUR STAGES REPEAT WITH NEW COLORS. YOUR METER NEVER STOPS CLIMBING."
 		}
 	]
