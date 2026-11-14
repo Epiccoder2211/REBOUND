@@ -17,7 +17,7 @@ const CAMERA_CENTER_Y := 380.0
 const RECOVERY_PAD_COUNT := 5
 const RECOVERY_PAD_SPACING := 112.0
 const RECOVERY_PAD_Y := 640.0
-const RECOVERY_PAD_CHANCE := 0.30
+const RECOVERY_PAD_CHANCE := 0.40
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
 var world: Node2D
@@ -428,7 +428,7 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 		)
 	for rect: Rect2 in data["hazards"]:
 		create_hazard(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
-	create_recovery_pads(stage_root, data["spawn"].x + offset, Color(current_theme["platform_accent"]))
+	create_recovery_pads(stage_root, data["spawn"].x + offset)
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET - 70.0)
 	portal.scale = Vector2(1.7, 1.7)
@@ -580,14 +580,13 @@ func on_player_died(safe_position: Vector2) -> void:
 	# Defer physics-body changes so that Area2D collision callbacks stay safe.
 	call_deferred("finish_respawn", safe_position)
 
-func create_recovery_pads(stage_root: Node2D, anchor_x: float, glow_color: Color) -> void:
+func create_recovery_pads(stage_root: Node2D, anchor_x: float) -> void:
 	for pad_index in range(RECOVERY_PAD_COUNT):
 		var pad = BOUNCE_PAD_SCRIPT.new()
-		pad.glow_color = glow_color
 		stage_root.add_child(pad)
 		pad.activated.connect(on_recovery_pad_activated)
-		var side_offset := randf_range(-RECOVERY_PAD_SPACING * 2.5, RECOVERY_PAD_SPACING * 2.5)
-		var vertical_offset := randf_range(-42.0, 42.0)
+		var side_offset := randf_range(-RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5)
+		var vertical_offset := randf_range(-80.0, 65.0)
 		pad.randomize_at(Vector2(anchor_x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
 
 func on_recovery_pad_activated() -> void:
@@ -604,7 +603,7 @@ func cycle_recovery_pads() -> void:
 			continue
 		if child.position.x < player.global_position.x - RECOVERY_PAD_SPACING:
 			var side_offset := randf_range(RECOVERY_PAD_SPACING, wrap_distance)
-			var vertical_offset := randf_range(-42.0, 42.0)
+			var vertical_offset := randf_range(-80.0, 65.0)
 			child.randomize_at(Vector2(player.global_position.x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
 
 func finish_respawn(safe_position: Vector2) -> void:
@@ -636,8 +635,8 @@ func reset_recovery_pads(anchor_x: float) -> void:
 		return
 	for child in active_stage_root.get_children():
 		if child.is_in_group("recovery_bounce_pad"):
-			var side_offset := randf_range(-RECOVERY_PAD_SPACING * 2.5, RECOVERY_PAD_SPACING * 2.5)
-			var vertical_offset := randf_range(-42.0, 42.0)
+			var side_offset := randf_range(-RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5)
+			var vertical_offset := randf_range(-80.0, 65.0)
 			child.randomize_at(Vector2(anchor_x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
 
 func activate_powerup() -> void:
