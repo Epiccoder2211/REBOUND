@@ -39,6 +39,7 @@ var retire_stage_after_x := 0.0
 var music_player: AudioStreamPlayer
 var music_tween: Tween
 var music_streams: Array = []
+var sfx_streams: Dictionary = {}
 
 var hud: Control
 var info_label: Label
@@ -67,6 +68,7 @@ func _ready() -> void:
 	camera.make_current()
 	create_ui()
 	create_music_player()
+	create_sound_effects()
 	build_level(0)
 	show_menu()
 
@@ -110,10 +112,78 @@ func create_background() -> void:
 func create_music_player() -> void:
 	music_player = AudioStreamPlayer.new()
 	music_player.name = "ProceduralLevelMusic"
-	music_player.volume_db = -17.0
+	music_player.volume_db = -8.0
 	add_child(music_player)
 	for level_index in range(4):
 		music_streams.append(create_level_music(level_index))
+
+func create_sound_effects() -> void:
+	for effect: String in ["death", "powerup_pickup", "powerup_use", "stage_clear"]:
+		sfx_streams[effect] = create_sfx_stream(effect)
+
+func create_sfx_stream(effect: String) -> AudioStreamWAV:
+	var sample_rate := 22050
+	var duration := 0.5
+	match effect:
+		"powerup_pickup":
+			duration = 0.48
+		"powerup_use":
+			duration = 0.55
+		"stage_clear":
+			duration = 0.82
+	var sample_count := int(sample_rate * duration)
+	var samples := PackedByteArray()
+	samples.resize(sample_count * 2)
+	var notes: Array[float] = [660.0, 880.0, 1180.0]
+	if effect == "stage_clear":
+		notes = [523.25, 659.25, 783.99, 1046.5]
+	for sample_index in range(sample_count):
+		var time := float(sample_index) / float(sample_rate)
+		var phase := time / duration
+		var frequency := 440.0
+		var envelope := 1.0
+		var sound_sample := 0.0
+		var note_index := 0
+		var note_phase := 0.0
+		match effect:
+			"death":
+				frequency = lerpf(600.0, 115.0, phase)
+				envelope = exp(-time * 5.2) * minf(1.0, phase * 18.0)
+				sound_sample = sin(TAU * frequency * time) * 0.72 + sin(TAU * frequency * 0.5 * time) * 0.24
+			"powerup_pickup":
+				note_index = mini(2, int(phase * 3.0))
+				frequency = notes[note_index]
+				note_phase = fposmod(phase * 3.0, 1.0)
+				envelope = sin(PI * note_phase) * 0.82
+				sound_sample = sin(TAU * frequency * time) * 0.72 + sin(TAU * frequency * 2.0 * time) * 0.18
+			"powerup_use":
+				frequency = lerpf(190.0, 1050.0, phase)
+				envelope = sin(PI * phase) * 0.9
+				sound_sample = sin(TAU * frequency * time) * 0.72 + sin(TAU * frequency * 0.5 * time) * (0.25 * (1.0 - phase))
+			"stage_clear":
+				note_index = mini(3, int(phase * 4.0))
+				frequency = notes[note_index]
+				note_phase = fposmod(phase * 4.0, 1.0)
+				envelope = minf(1.0, note_phase * 10.0) * (1.0 - note_phase * 0.35)
+				sound_sample = sin(TAU * frequency * time) * 0.7 + sin(TAU * frequency * 1.5 * time) * 0.18
+		var pcm := int(clampf(sound_sample * envelope * 0.9, -0.95, 0.95) * 32767.0)
+		samples.encode_s16(sample_index * 2, pcm)
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = sample_rate
+	stream.stereo = false
+	stream.data = samples
+	return stream
+
+func play_sfx(effect: String) -> void:
+	if not sfx_streams.has(effect):
+		return
+	var player_sfx := AudioStreamPlayer.new()
+	player_sfx.name = "SoundEffect_" + effect
+	player_sfx.stream = sfx_streams[effect]
+	player_sfx.finished.connect(player_sfx.queue_free)
+	add_child(player_sfx)
+	player_sfx.play()
 
 func create_level_music(level_index: int) -> AudioStreamWAV:
 	var tempos := [76.0, 94.0, 112.0, 132.0]
@@ -144,7 +214,7 @@ func create_level_music(level_index: int) -> AudioStreamWAV:
 			if level_index > 1 and beat_index % 4 == 2:
 				music_sample += sin(TAU * 180.0 * time) * exp(-beat_phase * 22.0) * 0.045
 		var edge_fade := minf(1.0, minf(time * 10.0, (duration - time) * 10.0))
-		var pcm := int(clampf(music_sample * edge_fade, -0.85, 0.85) * 32767.0)
+		var pcm := int(clampf(music_sample * edge_fade * 1.8, -0.95, 0.95) * 32767.0)
 		samples.encode_s16(sample_index * 2, pcm)
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
@@ -171,7 +241,7 @@ func play_level_music(level_index: int) -> void:
 			music_player.stream = next_stream
 			music_player.play()
 		)
-		music_tween.tween_property(music_player, "volume_db", -17.0, 0.8)
+		music_tween.tween_property(music_player, "volume_db", -8.0, 0.8)
 	else:
 		music_player.stream = next_stream
 		music_player.play()
@@ -479,6 +549,7 @@ func create_hazard(rect: Rect2) -> void:
 func on_player_died(safe_position: Vector2) -> void:
 	if state != "playing":
 		return
+	play_sfx("death")
 	# Defer physics-body changes so that Area2D collision callbacks stay safe.
 	call_deferred("finish_respawn", safe_position)
 
@@ -488,6 +559,7 @@ func finish_respawn(_safe_position: Vector2) -> void:
 	falls += 1
 	player.respawn(level_spawn)
 	current_powerup = SKYBOUND.duplicate()
+	play_sfx("powerup_pickup")
 	powerup_used = false
 	player.modulate = Color(current_powerup["color"])
 	player.active = false
@@ -510,6 +582,7 @@ func activate_powerup() -> void:
 		return
 	if not is_instance_valid(player) or not player.active:
 		return
+	play_sfx("powerup_use")
 	var direction := signf(Input.get_axis("ui_left", "ui_right"))
 	if direction == 0.0:
 		direction = 1.0
@@ -531,6 +604,7 @@ func show_powerup_prompt() -> void:
 
 func on_goal_reached() -> void:
 	if state == "playing":
+		play_sfx("stage_clear")
 		call_deferred("advance_stage")
 
 func advance_stage() -> void:
