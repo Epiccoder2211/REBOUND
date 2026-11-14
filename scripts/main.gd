@@ -14,6 +14,9 @@ const VIEW := Vector2(1152, 648)
 const PLAYER_SCREEN_X := 90.0
 const STAGE_VERTICAL_OFFSET := -40.0
 const CAMERA_CENTER_Y := 380.0
+const RECOVERY_PAD_COUNT := 5
+const RECOVERY_PAD_SPACING := 112.0
+const RECOVERY_PAD_Y := 640.0
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
 var world: Node2D
@@ -86,6 +89,7 @@ func _process(delta: float) -> void:
 		if is_instance_valid(player):
 			camera.position.x = player.global_position.x + VIEW.x * 0.5 - PLAYER_SCREEN_X
 			furthest_x = maxf(furthest_x, player.global_position.x)
+			cycle_recovery_pads()
 			if is_instance_valid(retiring_stage_root) and player.global_position.x > retire_stage_after_x:
 				retiring_stage_root.queue_free()
 				retiring_stage_root = null
@@ -417,6 +421,7 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 		)
 	for rect: Rect2 in data["hazards"]:
 		create_hazard(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
+	create_recovery_pads(stage_root, data["spawn"].x + offset, Color(current_theme["platform_accent"]))
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET - 70.0)
 	portal.scale = Vector2(1.7, 1.7)
@@ -565,32 +570,33 @@ func on_player_died(safe_position: Vector2) -> void:
 	if state != "playing":
 		return
 	play_sfx("death")
-	var fall_position: Vector2 = player.global_position if is_instance_valid(player) else safe_position
-	call_deferred("spawn_death_bounce_pads", fall_position)
 	# Defer physics-body changes so that Area2D collision callbacks stay safe.
 	call_deferred("finish_respawn", safe_position)
 
-func spawn_death_bounce_pads(fall_position: Vector2) -> void:
-	if not is_instance_valid(active_stage_root):
-		return
-	var existing_pads: Array[Node] = []
-	for child in active_stage_root.get_children():
-		if child.is_in_group("death_bounce_pad"):
-			existing_pads.append(child)
-	while existing_pads.size() > 5:
-		existing_pads.pop_front().queue_free()
-	for pad_index in range(5):
+func create_recovery_pads(stage_root: Node2D, anchor_x: float, glow_color: Color) -> void:
+	for pad_index in range(RECOVERY_PAD_COUNT):
 		var pad = BOUNCE_PAD_SCRIPT.new()
-		pad.position = Vector2(fall_position.x + (float(pad_index) - 2.0) * 132.0, 640.0)
-		pad.glow_color = Color(current_theme["platform_accent"])
+		pad.position = Vector2(anchor_x + (float(pad_index) - 2.0) * RECOVERY_PAD_SPACING, RECOVERY_PAD_Y)
+		pad.glow_color = glow_color
 		pad.bounce_power = 642.0
-		active_stage_root.add_child(pad)
+		stage_root.add_child(pad)
+
+func cycle_recovery_pads() -> void:
+	if not is_instance_valid(active_stage_root) or not is_instance_valid(player):
+		return
+	var wrap_distance := RECOVERY_PAD_COUNT * RECOVERY_PAD_SPACING
+	for child in active_stage_root.get_children():
+		if not child.is_in_group("recovery_bounce_pad"):
+			continue
+		while child.position.x < player.global_position.x - RECOVERY_PAD_SPACING:
+			child.position.x += wrap_distance
 
 func finish_respawn(_safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
 	player.respawn(level_spawn)
+	reset_recovery_pads(level_spawn.x)
 	current_powerup = SKYBOUND.duplicate()
 	play_sfx("powerup_pickup")
 	powerup_used = false
@@ -603,6 +609,15 @@ func finish_respawn(_safe_position: Vector2) -> void:
 	respawn_card.visible = true
 	respawn_card.modulate.a = 0.0
 	respawn_timer = 1.6
+
+func reset_recovery_pads(anchor_x: float) -> void:
+	if not is_instance_valid(active_stage_root):
+		return
+	var pad_index := 0
+	for child in active_stage_root.get_children():
+		if child.is_in_group("recovery_bounce_pad"):
+			child.position.x = anchor_x + (float(pad_index) - 2.0) * RECOVERY_PAD_SPACING
+			pad_index += 1
 
 func activate_powerup() -> void:
 	if state != "playing":
