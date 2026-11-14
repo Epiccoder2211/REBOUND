@@ -14,12 +14,12 @@ An original Godot 4.x 2D puzzle-platformer. It has four increasingly difficult s
 - A/D or Left/Right: move
 - Space: jump / proceed from menus
 - Escape: pause/resume
-- Your first fall gives you one power-up: Skybound.
-- Press P once to use Skybound. It cannot be used again, and no other power-ups are available.
+- Every fall restores one Skybound power-up.
+- Press P once to use Skybound; it returns when you fall again.
 - Jump through the large gate to continue directly onto the next stage.
 
 ## Important scripts
-- `scripts/main.gd`: levels, UI, menus, platforms, one-time power-up, music, and progression
+- `scripts/main.gd`: levels, UI, menus, platforms, Skybound power-up, procedural music, and progression
 - `scripts/player.gd`: physics, input, coyote time, bouncing
 - `scripts/spring.gd`: glowing spring that launches player
 - `scripts/goal.gd`: gold level exit

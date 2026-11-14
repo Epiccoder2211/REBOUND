@@ -29,7 +29,6 @@ var background_material: ShaderMaterial
 var current_theme: Dictionary = {}
 var camera: Camera2D
 var current_powerup: Dictionary = {}
-var powerup_awarded := false
 var powerup_used := false
 var theme_tween: Tween
 var active_stage_root: Node2D
@@ -255,7 +254,7 @@ func show_overlay(title: String, subtitle: String, instruction: String) -> void:
 
 func show_menu() -> void:
 	state = "menu"
-	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nJump through each giant gate and keep moving into the next stage.\nYour first fall gives you ONE power-up: SKYBOUND.\nUse it once with P. No other power-ups are available.", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE SKYBOUND ONCE")
+	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nJump through each giant gate and keep moving into the next stage.\nEvery fall gives you SKYBOUND.\nUse it once with P; it returns the next time you fall.", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE SKYBOUND")
 
 func resume_game() -> void:
 	state = "playing"
@@ -299,7 +298,6 @@ func build_level(index: int) -> void:
 	furthest_x = 0.0
 	falls = 0
 	current_powerup.clear()
-	powerup_awarded = false
 	powerup_used = false
 	preview_stage_root = null
 	build_stage(stage_index, stage_offset, false)
@@ -489,30 +487,17 @@ func finish_respawn(_safe_position: Vector2) -> void:
 		return
 	falls += 1
 	player.respawn(level_spawn)
-	var just_awarded_powerup := false
-	if not powerup_awarded:
-		current_powerup = SKYBOUND.duplicate()
-		powerup_awarded = true
-		just_awarded_powerup = true
-	if not current_powerup.is_empty():
-		player.modulate = Color(current_powerup["color"])
-		if just_awarded_powerup:
-			player.active = false
-			message_label.text = ""
-			message_timeout = 0.0
-			respawn_title.text = "1 POWER-UP GIVEN"
-			respawn_subtitle.text = "SKYBOUND • Press P once to launch upward."
-			respawn_card.visible = true
-			respawn_card.modulate.a = 0.0
-			respawn_timer = 1.6
-		else:
-			respawn_card.visible = false
-			respawn_timer = 0.0
-			show_powerup_prompt()
-	else:
-		player.modulate = Color(current_theme["player_tint"])
-		respawn_card.visible = false
-		respawn_timer = 0.0
+	current_powerup = SKYBOUND.duplicate()
+	powerup_used = false
+	player.modulate = Color(current_powerup["color"])
+	player.active = false
+	message_label.text = ""
+	message_timeout = 0.0
+	respawn_title.text = "SKYBOUND RESTORED"
+	respawn_subtitle.text = "Press P once to launch upward."
+	respawn_card.visible = true
+	respawn_card.modulate.a = 0.0
+	respawn_timer = 1.6
 
 func activate_powerup() -> void:
 	if state != "playing":
