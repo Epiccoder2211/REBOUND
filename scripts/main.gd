@@ -6,7 +6,6 @@ const PLAYER_SCRIPT = preload("res://scripts/player.gd")
 const GOAL_SCRIPT = preload("res://scripts/goal.gd")
 const HAZARD_SCRIPT = preload("res://scripts/hazard.gd")
 const MOVING_SCRIPT = preload("res://scripts/moving_platform.gd")
-const BOUNCE_PAD_SCRIPT = preload("res://scripts/bounce_pad.gd")
 const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
 const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const BACKGROUND_MUSIC = preload("res://assets/in_the_dark.wav")
@@ -14,11 +13,6 @@ const VIEW := Vector2(1152, 648)
 const PLAYER_SCREEN_X := 90.0
 const STAGE_VERTICAL_OFFSET := -40.0
 const CAMERA_CENTER_Y := 380.0
-const RECOVERY_PAD_COUNT := 2
-const RECOVERY_PAD_SPACING := 180.0
-const RECOVERY_PAD_Y := 640.0
-const RECOVERY_PAD_CHANCE := 1.0
-const RECOVERY_PAD_LAUNCH_CLEARANCE := 520.0
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
 var world: Node2D
@@ -91,7 +85,6 @@ func _process(delta: float) -> void:
 		if is_instance_valid(player):
 			camera.position.x = player.global_position.x + VIEW.x * 0.5 - PLAYER_SCREEN_X
 			furthest_x = maxf(furthest_x, player.global_position.x)
-			cycle_recovery_pads()
 			if is_instance_valid(retiring_stage_root) and player.global_position.x > retire_stage_after_x:
 				retiring_stage_root.queue_free()
 				retiring_stage_root = null
@@ -135,7 +128,7 @@ func create_music_player() -> void:
 	)
 
 func create_sound_effects() -> void:
-	for effect: String in ["jump", "death", "powerup_pickup", "powerup_use", "stage_clear", "portal_woosh", "recovery_pad"]:
+	for effect: String in ["jump", "death", "powerup_pickup", "powerup_use", "stage_clear", "portal_woosh"]:
 		sfx_streams[effect] = create_sfx_stream(effect)
 
 func create_sfx_stream(effect: String) -> AudioStreamWAV:
@@ -154,8 +147,6 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 			duration = 0.82
 		"portal_woosh":
 			duration = 0.9
-		"recovery_pad":
-			duration = 0.38
 	var sample_count := int(sample_rate * duration)
 	var samples := PackedByteArray()
 	samples.resize(sample_count * 2)
@@ -202,10 +193,6 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 				envelope = pow(sin(PI * phase), 0.8)
 				noise_filter = lerpf(noise_filter, randf_range(-1.0, 1.0), 0.14)
 				sound_sample = noise_filter * 0.72 + sin(TAU * frequency * time) * 0.22
-			"recovery_pad":
-				frequency = lerpf(540.0, 1120.0, phase)
-				envelope = exp(-phase * 5.0) * minf(1.0, phase * 20.0)
-				sound_sample = sin(TAU * frequency * time) * 0.62 + sin(TAU * frequency * 2.0 * time) * 0.24 + sin(TAU * frequency * 0.5 * time) * 0.14
 		var pcm := int(clampf(sound_sample * envelope * 0.9, -0.95, 0.95) * 32767.0)
 		samples.encode_s16(sample_index * 2, pcm)
 	var stream := AudioStreamWAV.new()
@@ -429,7 +416,6 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 		)
 	for rect: Rect2 in data["hazards"]:
 		create_hazard(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
-	create_recovery_pads(stage_root, data["spawn"].x + offset)
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET - 70.0)
 	portal.scale = Vector2(1.7, 1.7)
@@ -581,85 +567,12 @@ func on_player_died(safe_position: Vector2) -> void:
 	# Defer physics-body changes so that Area2D collision callbacks stay safe.
 	call_deferred("finish_respawn", safe_position)
 
-func create_recovery_pads(stage_root: Node2D, anchor_x: float) -> void:
-	for pad_index in range(RECOVERY_PAD_COUNT):
-		var pad = BOUNCE_PAD_SCRIPT.new()
-		stage_root.add_child(pad)
-		pad.activated.connect(on_recovery_pad_activated)
-		var min_offset := -RECOVERY_PAD_SPACING * 0.5 if pad_index == 0 else RECOVERY_PAD_SPACING * 0.5
-		var max_offset := RECOVERY_PAD_SPACING * 0.5 if pad_index == 0 else RECOVERY_PAD_SPACING * 1.5
-		var pad_position := find_recovery_pad_position(stage_root, anchor_x, min_offset, max_offset, pad)
-		pad.randomize_at(pad_position, RECOVERY_PAD_CHANCE)
-		pad.discovered = true
-		pad.visible = true
-		pad.queue_redraw()
-
-func find_recovery_pad_position(stage_root: Node2D, anchor_x: float, min_offset: float, max_offset: float, ignored_pad: Node2D = null) -> Vector2:
-	var fallback := Vector2(anchor_x, RECOVERY_PAD_Y)
-	for attempt in range(64):
-		var candidate := Vector2(anchor_x + randf_range(min_offset, max_offset), RECOVERY_PAD_Y + randf_range(-80.0, 65.0))
-		if is_recovery_pad_position_clear(stage_root, candidate, ignored_pad):
-			return candidate
-		fallback = candidate
-	return fallback
-
-func is_recovery_pad_position_clear(stage_root: Node2D, pad_position: Vector2, ignored_pad: Node2D = null) -> bool:
-	const PAD_HALF_WIDTH := 27.0
-	const PLAYER_HALF_WIDTH := 14.0
-	var launch_path := Rect2(
-		Vector2(pad_position.x - PAD_HALF_WIDTH, pad_position.y - RECOVERY_PAD_LAUNCH_CLEARANCE),
-		Vector2(PAD_HALF_WIDTH * 2.0, RECOVERY_PAD_LAUNCH_CLEARANCE + PLAYER_HALF_WIDTH)
-	)
-	for body in stage_root.get_children():
-		if body == ignored_pad:
-			continue
-		if body.is_in_group("recovery_bounce_pad") and absf(pad_position.x - body.position.x) < RECOVERY_PAD_SPACING:
-			return false
-		if not body is PhysicsBody2D:
-			continue
-		var collider := body.get_node_or_null("CollisionShape2D") as CollisionShape2D
-		if collider == null or not collider.shape is RectangleShape2D:
-			continue
-		var platform_rect := Rect2(body.global_position - (collider.shape as RectangleShape2D).size * 0.5, (collider.shape as RectangleShape2D).size)
-		var movement_allowance := 0.0
-		if body is AnimatableBody2D:
-			movement_allowance = float(body.get("travel"))
-		platform_rect.position.x -= movement_allowance
-		platform_rect.size.x += movement_allowance * 2.0
-		if launch_path.intersects(platform_rect):
-			return false
-	return true
-
-func on_recovery_pad_activated() -> void:
-	play_sfx("recovery_pad")
-	message_label.text = "YOU GOT SAVED!"
-	message_timeout = 1.8
-
-func cycle_recovery_pads() -> void:
-	if not is_instance_valid(active_stage_root) or not is_instance_valid(player):
-		return
-	var wrap_distance := RECOVERY_PAD_COUNT * RECOVERY_PAD_SPACING
-	for child in active_stage_root.get_children():
-		if not child.is_in_group("recovery_bounce_pad"):
-			continue
-		if child.discovered:
-			continue
-		if child.position.x < player.global_position.x - RECOVERY_PAD_SPACING:
-			var side_offset := randf_range(RECOVERY_PAD_SPACING, wrap_distance)
-			var pad_position := find_recovery_pad_position(active_stage_root, player.global_position.x + side_offset, 0.0, RECOVERY_PAD_SPACING * 0.5, child)
-			child.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_position_clear(active_stage_root, pad_position, child) else 0.0)
-
 func finish_respawn(safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
 	# Keep the current stage layout, but return the player to this stage's start.
 	player.respawn(level_spawn)
-	# Recovery pads stay where they were, but can save the player again after a fall.
-	if is_instance_valid(active_stage_root):
-		for child in active_stage_root.get_children():
-			if child.is_in_group("recovery_bounce_pad"):
-				child.activated_once = false
 	current_powerup = SKYBOUND.duplicate()
 	play_sfx("powerup_pickup")
 	powerup_used = false
@@ -672,17 +585,6 @@ func finish_respawn(safe_position: Vector2) -> void:
 	respawn_card.visible = true
 	respawn_card.modulate.a = 0.0
 	respawn_timer = 1.6
-
-func reset_recovery_pads(anchor_x: float) -> void:
-	if not is_instance_valid(active_stage_root):
-		return
-	for child in active_stage_root.get_children():
-		if child.is_in_group("recovery_bounce_pad"):
-			if child.discovered:
-				continue
-			var side_offset := randf_range(-RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5)
-			var pad_position := find_recovery_pad_position(active_stage_root, anchor_x + side_offset, -RECOVERY_PAD_SPACING * 0.5, RECOVERY_PAD_SPACING * 0.5, child)
-			child.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_position_clear(active_stage_root, pad_position, child) else 0.0)
 
 func activate_powerup() -> void:
 	if state != "playing":
