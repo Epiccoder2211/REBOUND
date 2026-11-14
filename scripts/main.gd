@@ -7,6 +7,8 @@ const SPRING_SCRIPT = preload("res://scripts/spring.gd")
 const GOAL_SCRIPT = preload("res://scripts/goal.gd")
 const HAZARD_SCRIPT = preload("res://scripts/hazard.gd")
 const MOVING_SCRIPT = preload("res://scripts/moving_platform.gd")
+const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
+const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const VIEW := Vector2(1152, 648)
 const MAX_SPRINGS := 3
 
@@ -34,6 +36,7 @@ var screen_instruction: Label
 
 func _ready() -> void:
     levels = make_levels()
+    create_background()
     world = Node2D.new()
     world.name = "LevelWorld"
     add_child(world)
@@ -50,21 +53,15 @@ func _process(delta: float) -> void:
             message_label.text = ""
     update_stats()
 
-func _draw() -> void:
-    draw_rect(Rect2(Vector2.ZERO, VIEW), Color("111529"))
-    draw_rect(Rect2(0, 440, VIEW.x, 208), Color("1b1836"))
-    draw_rect(Rect2(0, 560, VIEW.x, 88), Color("24203b"))
-    # Static stars and distant energy trails, no image files required.
-    for i in range(64):
-        var x := float((i * 151 + 17) % 1140) + 6.0
-        var y := float((i * 79 + 31) % 490) + 12.0
-        draw_circle(Vector2(x, y), 1.0 + float(i % 3) * 0.35, Color(0.64, 0.73, 1.0, 0.25 + float(i % 4) * 0.1))
-    for i in range(7):
-        var yy := 175.0 + float(i * 64)
-        draw_line(Vector2(0, yy), Vector2(VIEW.x, yy - 28), Color(0.45, 0.38, 0.78, 0.045), 2.0)
-    # Distant golden core: visual hint at the goal of the world.
-    draw_circle(Vector2(1090, 90), 62.0, Color(1, 0.70, 0.25, 0.025))
-    draw_circle(Vector2(1090, 90), 40.0, Color(1, 0.70, 0.25, 0.045))
+func create_background() -> void:
+    var background := ColorRect.new()
+    background.name = "NebulaBackground"
+    background.size = VIEW
+    background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    var material := ShaderMaterial.new()
+    material.shader = BACKGROUND_SHADER
+    background.material = material
+    add_child(background)
 
 func create_ui() -> void:
     var layer := CanvasLayer.new()
@@ -207,6 +204,13 @@ func create_platform(rect: Rect2, moving: bool = false, travel: float = 0.0) -> 
     body.add_child(collider)
     var visual := Polygon2D.new()
     var half := rect.size * 0.5
+    var side := Polygon2D.new()
+    side.polygon = PackedVector2Array([
+        Vector2(-half.x, half.y - 2), Vector2(half.x, half.y - 2),
+        Vector2(half.x, half.y + 7), Vector2(-half.x, half.y + 7)
+    ])
+    side.color = Color("302d50") if moving else Color("252a40")
+    body.add_child(side)
     visual.polygon = PackedVector2Array([
         Vector2(-half.x, -half.y), Vector2(half.x, -half.y),
         Vector2(half.x, half.y), Vector2(-half.x, half.y)
@@ -220,6 +224,34 @@ func create_platform(rect: Rect2, moving: bool = false, travel: float = 0.0) -> 
     ])
     highlight.color = Color("a480e6") if moving else Color("6d83af")
     body.add_child(highlight)
+    var accent := Polygon2D.new()
+    accent.polygon = PackedVector2Array([
+        Vector2(-half.x + 12, -half.y + 10), Vector2(half.x - 12, -half.y + 10),
+        Vector2(half.x - 12, -half.y + 12), Vector2(-half.x + 12, -half.y + 12)
+    ])
+    accent.color = Color("dbb5ff") if moving else Color("83e7ff")
+    var glow_material := ShaderMaterial.new()
+    glow_material.shader = PLATFORM_GLOW_SHADER
+    accent.material = glow_material
+    body.add_child(accent)
+    for side_sign in [-1.0, 1.0]:
+        var rivet := Polygon2D.new()
+        var rivet_x := side_sign * (half.x - 8)
+        var rivet_y := half.y - 6
+        rivet.polygon = PackedVector2Array([
+            Vector2(rivet_x, rivet_y - 2.5), Vector2(rivet_x + 2.5, rivet_y),
+            Vector2(rivet_x, rivet_y + 2.5), Vector2(rivet_x - 2.5, rivet_y)
+        ])
+        rivet.color = Color("d6c3ff") if moving else Color("90b6d2")
+        body.add_child(rivet)
+    var outline := Line2D.new()
+    outline.points = PackedVector2Array([
+        Vector2(-half.x, -half.y), Vector2(half.x, -half.y),
+        Vector2(half.x, half.y), Vector2(-half.x, half.y), Vector2(-half.x, -half.y)
+    ])
+    outline.width = 1.5
+    outline.default_color = Color(0.66, 0.82, 1.0, 0.45)
+    body.add_child(outline)
     world.add_child(body)
 
 func create_hazard(rect: Rect2) -> void:
