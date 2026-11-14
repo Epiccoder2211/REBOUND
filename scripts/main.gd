@@ -611,8 +611,9 @@ func finish_respawn(_safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
+	# Keep the current stage layout as-is when the player dies so the world does
+	# not get rebuilt or its active objects cleared on respawn.
 	player.respawn(level_spawn)
-	reset_recovery_pads(level_spawn.x)
 	current_powerup = SKYBOUND.duplicate()
 	play_sfx("powerup_pickup")
 	powerup_used = false
