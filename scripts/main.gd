@@ -14,10 +14,10 @@ const VIEW := Vector2(1152, 648)
 const PLAYER_SCREEN_X := 90.0
 const STAGE_VERTICAL_OFFSET := -40.0
 const CAMERA_CENTER_Y := 380.0
-const RECOVERY_PAD_COUNT := 5
+const RECOVERY_PAD_COUNT := 2
 const RECOVERY_PAD_SPACING := 180.0
 const RECOVERY_PAD_Y := 640.0
-const RECOVERY_PAD_CHANCE := 0.40
+const RECOVERY_PAD_CHANCE := 1.0
 const RECOVERY_PAD_LAUNCH_CLEARANCE := 520.0
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
@@ -587,7 +587,10 @@ func create_recovery_pads(stage_root: Node2D, anchor_x: float) -> void:
 		stage_root.add_child(pad)
 		pad.activated.connect(on_recovery_pad_activated)
 		var pad_position := find_recovery_pad_position(stage_root, anchor_x, -RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5, pad)
-		pad.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_position_clear(stage_root, pad_position, pad) else 0.0)
+		pad.randomize_at(pad_position, RECOVERY_PAD_CHANCE)
+		pad.discovered = true
+		pad.visible = true
+		pad.queue_redraw()
 
 func find_recovery_pad_position(stage_root: Node2D, anchor_x: float, min_offset: float, max_offset: float, ignored_pad: Node2D = null) -> Vector2:
 	var fallback := Vector2(anchor_x, RECOVERY_PAD_Y)
