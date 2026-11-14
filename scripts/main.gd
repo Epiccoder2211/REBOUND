@@ -607,13 +607,18 @@ func cycle_recovery_pads() -> void:
 			var vertical_offset := randf_range(-42.0, 42.0)
 			child.randomize_at(Vector2(player.global_position.x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
 
-func finish_respawn(_safe_position: Vector2) -> void:
+func finish_respawn(safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
 	# Keep the current stage layout as-is when the player dies so the world does
 	# not get rebuilt or its active objects cleared on respawn.
-	player.respawn(level_spawn)
+	player.respawn(safe_position)
+	# Recovery pads stay where they were, but can save the player again after a fall.
+	if is_instance_valid(active_stage_root):
+		for child in active_stage_root.get_children():
+			if child.is_in_group("recovery_bounce_pad"):
+				child.activated_once = false
 	current_powerup = SKYBOUND.duplicate()
 	play_sfx("powerup_pickup")
 	powerup_used = false
