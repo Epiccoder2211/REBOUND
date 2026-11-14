@@ -39,6 +39,8 @@ var retiring_stage_root: Node2D
 var retire_stage_after_x := 0.0
 var music_player: AudioStreamPlayer
 var music_tween: Tween
+var music_duck_tween: Tween
+var active_sfx_count := 0
 var music_streams: Array[AudioStream] = []
 var sfx_streams: Dictionary = {}
 
@@ -124,7 +126,7 @@ func create_music_player() -> void:
 	)
 
 func create_sound_effects() -> void:
-	for effect: String in ["jump", "death", "powerup_pickup", "powerup_use", "stage_clear"]:
+	for effect: String in ["jump", "death", "powerup_pickup", "powerup_use", "stage_clear", "portal_woosh"]:
 		sfx_streams[effect] = create_sfx_stream(effect)
 
 func create_sfx_stream(effect: String) -> AudioStreamWAV:
@@ -141,9 +143,12 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 			duration = 0.55
 		"stage_clear":
 			duration = 0.82
+		"portal_woosh":
+			duration = 0.9
 	var sample_count := int(sample_rate * duration)
 	var samples := PackedByteArray()
 	samples.resize(sample_count * 2)
+	var noise_filter := 0.0
 	var notes: Array[float] = [660.0, 880.0, 1180.0]
 	if effect == "stage_clear":
 		notes = [523.25, 659.25, 783.99, 1046.5]
@@ -181,6 +186,11 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 				note_phase = fposmod(phase * 4.0, 1.0)
 				envelope = minf(1.0, note_phase * 10.0) * (1.0 - note_phase * 0.35)
 				sound_sample = sin(TAU * frequency * time) * 0.7 + sin(TAU * frequency * 1.5 * time) * 0.18
+			"portal_woosh":
+				frequency = lerpf(210.0, 760.0, phase)
+				envelope = pow(sin(PI * phase), 0.8)
+				noise_filter = lerpf(noise_filter, randf_range(-1.0, 1.0), 0.14)
+				sound_sample = noise_filter * 0.72 + sin(TAU * frequency * time) * 0.22
 		var pcm := int(clampf(sound_sample * envelope * 0.9, -0.95, 0.95) * 32767.0)
 		samples.encode_s16(sample_index * 2, pcm)
 	var stream := AudioStreamWAV.new()
@@ -196,9 +206,29 @@ func play_sfx(effect: String) -> void:
 	var player_sfx := AudioStreamPlayer.new()
 	player_sfx.name = "SoundEffect_" + effect
 	player_sfx.stream = sfx_streams[effect]
-	player_sfx.finished.connect(player_sfx.queue_free)
+	player_sfx.finished.connect(_on_sfx_finished.bind(player_sfx))
 	add_child(player_sfx)
+	active_sfx_count += 1
+	set_music_ducked(true)
 	player_sfx.play()
+
+func _on_sfx_finished(player_sfx: AudioStreamPlayer) -> void:
+	active_sfx_count = maxi(0, active_sfx_count - 1)
+	player_sfx.queue_free()
+	if active_sfx_count == 0:
+		set_music_ducked(false)
+
+func set_music_ducked(ducked: bool) -> void:
+	if music_tween and music_tween.is_running():
+		return
+	if music_duck_tween and music_duck_tween.is_running():
+		music_duck_tween.kill()
+	var target_volume := -13.0 if ducked else -4.0
+	music_duck_tween = create_tween()
+	music_duck_tween.tween_property(music_player, "volume_db", target_volume, 0.18 if ducked else 0.45)
+
+func sync_music_ducking() -> void:
+	set_music_ducked(active_sfx_count > 0)
 
 func play_level_music(level_index: int) -> void:
 	if music_streams.is_empty():
@@ -208,6 +238,8 @@ func play_level_music(level_index: int) -> void:
 		return
 	if music_tween and music_tween.is_running():
 		music_tween.kill()
+	if music_duck_tween and music_duck_tween.is_running():
+		music_duck_tween.kill()
 	if music_player.playing:
 		music_tween = create_tween()
 		music_tween.tween_property(music_player, "volume_db", -36.0, 0.3)
@@ -215,7 +247,10 @@ func play_level_music(level_index: int) -> void:
 			music_player.stream = next_stream
 			music_player.play()
 		)
-		music_tween.tween_property(music_player, "volume_db", -4.0, 0.8)
+		music_tween.tween_property(music_player, "volume_db", -13.0 if active_sfx_count > 0 else -4.0, 0.8)
+		music_tween.tween_callback(func() -> void:
+			call_deferred("sync_music_ducking")
+		)
 	else:
 		music_player.stream = next_stream
 		music_player.play()
@@ -382,6 +417,8 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, 0.0)
 	portal.scale = Vector2(1.7, 1.7)
+	portal.color_a = Color(data["theme"]["platform_accent"])
+	portal.color_b = Color(levels[(index + 1) % levels.size()]["theme"]["platform_accent"])
 	stage_root.add_child(portal)
 	portal.reached.connect(on_goal_reached)
 	if not preview:
@@ -578,7 +615,7 @@ func show_powerup_prompt() -> void:
 
 func on_goal_reached() -> void:
 	if state == "playing":
-		play_sfx("stage_clear")
+		play_sfx("portal_woosh")
 		call_deferred("advance_stage")
 
 func advance_stage() -> void:
