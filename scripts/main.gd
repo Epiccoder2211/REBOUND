@@ -112,7 +112,7 @@ func create_background() -> void:
 func create_music_player() -> void:
 	music_player = AudioStreamPlayer.new()
 	music_player.name = "ProceduralLevelMusic"
-	music_player.volume_db = -8.0
+	music_player.volume_db = -4.0
 	add_child(music_player)
 	for level_index in range(4):
 		music_streams.append(create_level_music(level_index))
@@ -125,6 +125,8 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 	var sample_rate := 22050
 	var duration := 0.5
 	match effect:
+		"death":
+			duration = 0.68
 		"powerup_pickup":
 			duration = 0.48
 		"powerup_use":
@@ -149,7 +151,8 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 			"death":
 				frequency = lerpf(600.0, 115.0, phase)
 				envelope = exp(-time * 5.2) * minf(1.0, phase * 18.0)
-				sound_sample = sin(TAU * frequency * time) * 0.72 + sin(TAU * frequency * 0.5 * time) * 0.24
+				sound_sample = sin(TAU * frequency * time) * 0.62 + sin(TAU * frequency * 0.5 * time) * 0.24
+				sound_sample += sin(TAU * 62.0 * time) * exp(-time * 9.0) * 0.45
 			"powerup_pickup":
 				note_index = mini(2, int(phase * 3.0))
 				frequency = notes[note_index]
@@ -186,35 +189,67 @@ func play_sfx(effect: String) -> void:
 	player_sfx.play()
 
 func create_level_music(level_index: int) -> AudioStreamWAV:
-	var tempos := [76.0, 94.0, 112.0, 132.0]
+	# Each stage gets its own original arrangement; the last two lean into
+	# faster, chiptune-style boss energy without borrowing a known melody.
+	var tempos := [82.0, 100.0, 124.0, 148.0]
 	var bpm: float = tempos[level_index % tempos.size()]
 	var sample_rate := 11025
 	var duration := 16.0 * 60.0 / bpm
 	var sample_count := int(sample_rate * duration)
-	var chord_roots := [196.0, 174.61, 146.83, 164.81]
-	var melody_ratios := [1.5, 1.25, 1.5, 2.0, 1.78, 1.5, 1.25, 1.0]
+	var chord_progressions := [
+		[196.0, 164.81, 146.83, 174.61],
+		[220.0, 196.0, 174.61, 146.83],
+		[146.83, 174.61, 196.0, 164.81],
+		[110.0, 130.81, 146.83, 123.47]
+	]
+	var melody_patterns := [
+		[1.0, 1.25, 1.5, 2.0, 1.5, 1.25, 1.125, 1.0],
+		[1.0, 1.5, 1.25, 1.78, 1.5, 2.0, 1.25, 1.5],
+		[1.0, 1.5, 1.78, 2.0, 1.5, 1.78, 1.25, 2.0],
+		[1.0, 1.125, 1.5, 1.78, 2.0, 1.78, 1.5, 1.125]
+	]
+	var chord_roots: Array = chord_progressions[level_index % chord_progressions.size()]
+	var melody_ratios: Array = melody_patterns[level_index % melody_patterns.size()]
 	var intensity := float(level_index) / 3.0
 	var samples := PackedByteArray()
 	samples.resize(sample_count * 2)
 	for sample_index in range(sample_count):
 		var time := float(sample_index) / float(sample_rate)
 		var beat_position := time * bpm / 60.0
+		var subdivision := 2 if level_index >= 2 else 1
+		var step_index := int(floor(beat_position * subdivision)) % (16 * subdivision)
 		var beat_index := int(floor(beat_position)) % 16
-		var chord_index := int(beat_index / 4) % chord_roots.size()
+		var melody_index := step_index % melody_ratios.size()
+		var chord_index := int(beat_index / 4)
 		var root: float = chord_roots[chord_index]
-		var melody_frequency: float = root * melody_ratios[beat_index % melody_ratios.size()]
-		var pad := sin(TAU * root * time) * 0.11 + sin(TAU * root * 1.5 * time) * 0.045
-		var melody_gain := 0.025 + intensity * 0.055
-		if level_index == 0 and beat_index % 2 != 0:
-			melody_gain *= 0.22
-		var music_sample := pad + sin(TAU * melody_frequency * time) * melody_gain
-		if level_index > 0:
-			var beat_phase := fposmod(beat_position, 1.0)
-			music_sample += sin(TAU * (48.0 + 34.0 * (1.0 - beat_phase)) * time) * exp(-beat_phase * 15.0) * (0.035 + intensity * 0.085)
-			if level_index > 1 and beat_index % 4 == 2:
-				music_sample += sin(TAU * 180.0 * time) * exp(-beat_phase * 22.0) * 0.045
+		var melody_frequency: float = root * melody_ratios[melody_index]
+		var pad_gain := 0.12 - intensity * 0.035
+		var pad := sin(TAU * root * time) * pad_gain + sin(TAU * root * 1.5 * time) * 0.04
+		var melody_gains := [0.045, 0.065, 0.10, 0.13]
+		var melody_gain: float = melody_gains[level_index % melody_gains.size()]
+		var lead := sin(TAU * melody_frequency * time)
+		if level_index == 1:
+			lead = sin(TAU * melody_frequency * time) * 0.75 + sin(TAU * melody_frequency * 2.0 * time) * 0.25
+		elif level_index >= 2:
+			# Harmonics add a crunchy, retro boss-track edge with a new melody.
+			lead = sin(TAU * melody_frequency * time) * 0.55 + sin(TAU * melody_frequency * 2.0 * time) * 0.3 + sin(TAU * melody_frequency * 3.0 * time) * 0.15
+		var music_sample := pad + lead * melody_gain
+		var beat_phase := fposmod(beat_position, 1.0)
+		if level_index >= 1:
+			var kick_gains := [0.0, 0.055, 0.10, 0.15]
+			var kick_gain: float = kick_gains[level_index % kick_gains.size()]
+			music_sample += sin(TAU * (48.0 + 34.0 * (1.0 - beat_phase)) * time) * exp(-beat_phase * 15.0) * kick_gain
+		if level_index == 1 and beat_index % 4 == 2:
+			music_sample += sin(TAU * 220.0 * time) * exp(-beat_phase * 20.0) * 0.035
+		elif level_index >= 2 and beat_index % 2 == 0:
+			var snare_phase := fposmod(beat_position, 1.0)
+			var snare_gain := 0.04 if level_index == 2 else 0.075
+			music_sample += sin(TAU * 180.0 * time) * exp(-snare_phase * 22.0) * snare_gain
+		if level_index == 3:
+			var pulse_phase := fposmod(beat_position * 4.0, 1.0)
+			music_sample += sin(TAU * root * 0.5 * time) * exp(-pulse_phase * 3.0) * 0.11
 		var edge_fade := minf(1.0, minf(time * 10.0, (duration - time) * 10.0))
-		var pcm := int(clampf(music_sample * edge_fade * 1.8, -0.95, 0.95) * 32767.0)
+		var pcm := int(clampf(music_sample * edge_fade * 1.65, -0.95, 0.95) * 32767.0)
 		samples.encode_s16(sample_index * 2, pcm)
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
@@ -241,7 +276,7 @@ func play_level_music(level_index: int) -> void:
 			music_player.stream = next_stream
 			music_player.play()
 		)
-		music_tween.tween_property(music_player, "volume_db", -8.0, 0.8)
+		music_tween.tween_property(music_player, "volume_db", -4.0, 0.8)
 	else:
 		music_player.stream = next_stream
 		music_player.play()
