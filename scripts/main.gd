@@ -17,6 +17,7 @@ const CAMERA_CENTER_Y := 380.0
 const RECOVERY_PAD_COUNT := 5
 const RECOVERY_PAD_SPACING := 112.0
 const RECOVERY_PAD_Y := 640.0
+const RECOVERY_PAD_CHANCE := 0.30
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
 var world: Node2D
@@ -133,7 +134,7 @@ func create_music_player() -> void:
 	)
 
 func create_sound_effects() -> void:
-	for effect: String in ["jump", "death", "powerup_pickup", "powerup_use", "stage_clear", "portal_woosh"]:
+	for effect: String in ["jump", "death", "powerup_pickup", "powerup_use", "stage_clear", "portal_woosh", "recovery_pad"]:
 		sfx_streams[effect] = create_sfx_stream(effect)
 
 func create_sfx_stream(effect: String) -> AudioStreamWAV:
@@ -152,6 +153,8 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 			duration = 0.82
 		"portal_woosh":
 			duration = 0.9
+		"recovery_pad":
+			duration = 0.38
 	var sample_count := int(sample_rate * duration)
 	var samples := PackedByteArray()
 	samples.resize(sample_count * 2)
@@ -198,6 +201,10 @@ func create_sfx_stream(effect: String) -> AudioStreamWAV:
 				envelope = pow(sin(PI * phase), 0.8)
 				noise_filter = lerpf(noise_filter, randf_range(-1.0, 1.0), 0.14)
 				sound_sample = noise_filter * 0.72 + sin(TAU * frequency * time) * 0.22
+			"recovery_pad":
+				frequency = lerpf(540.0, 1120.0, phase)
+				envelope = exp(-phase * 5.0) * minf(1.0, phase * 20.0)
+				sound_sample = sin(TAU * frequency * time) * 0.62 + sin(TAU * frequency * 2.0 * time) * 0.24 + sin(TAU * frequency * 0.5 * time) * 0.14
 		var pcm := int(clampf(sound_sample * envelope * 0.9, -0.95, 0.95) * 32767.0)
 		samples.encode_s16(sample_index * 2, pcm)
 	var stream := AudioStreamWAV.new()
@@ -576,10 +583,17 @@ func on_player_died(safe_position: Vector2) -> void:
 func create_recovery_pads(stage_root: Node2D, anchor_x: float, glow_color: Color) -> void:
 	for pad_index in range(RECOVERY_PAD_COUNT):
 		var pad = BOUNCE_PAD_SCRIPT.new()
-		pad.position = Vector2(anchor_x + (float(pad_index) - 2.0) * RECOVERY_PAD_SPACING, RECOVERY_PAD_Y)
 		pad.glow_color = glow_color
-		pad.bounce_power = 642.0
 		stage_root.add_child(pad)
+		pad.activated.connect(on_recovery_pad_activated)
+		var side_offset := randf_range(-RECOVERY_PAD_SPACING * 2.5, RECOVERY_PAD_SPACING * 2.5)
+		var vertical_offset := randf_range(-42.0, 42.0)
+		pad.randomize_at(Vector2(anchor_x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
+
+func on_recovery_pad_activated() -> void:
+	play_sfx("recovery_pad")
+	message_label.text = "YOU GOT SAVED!"
+	message_timeout = 1.8
 
 func cycle_recovery_pads() -> void:
 	if not is_instance_valid(active_stage_root) or not is_instance_valid(player):
@@ -588,8 +602,10 @@ func cycle_recovery_pads() -> void:
 	for child in active_stage_root.get_children():
 		if not child.is_in_group("recovery_bounce_pad"):
 			continue
-		while child.position.x < player.global_position.x - RECOVERY_PAD_SPACING:
-			child.position.x += wrap_distance
+		if child.position.x < player.global_position.x - RECOVERY_PAD_SPACING:
+			var side_offset := randf_range(RECOVERY_PAD_SPACING, wrap_distance)
+			var vertical_offset := randf_range(-42.0, 42.0)
+			child.randomize_at(Vector2(player.global_position.x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
 
 func finish_respawn(_safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
@@ -613,11 +629,11 @@ func finish_respawn(_safe_position: Vector2) -> void:
 func reset_recovery_pads(anchor_x: float) -> void:
 	if not is_instance_valid(active_stage_root):
 		return
-	var pad_index := 0
 	for child in active_stage_root.get_children():
 		if child.is_in_group("recovery_bounce_pad"):
-			child.position.x = anchor_x + (float(pad_index) - 2.0) * RECOVERY_PAD_SPACING
-			pad_index += 1
+			var side_offset := randf_range(-RECOVERY_PAD_SPACING * 2.5, RECOVERY_PAD_SPACING * 2.5)
+			var vertical_offset := randf_range(-42.0, 42.0)
+			child.randomize_at(Vector2(anchor_x + side_offset, RECOVERY_PAD_Y + vertical_offset), RECOVERY_PAD_CHANCE)
 
 func activate_powerup() -> void:
 	if state != "playing":
