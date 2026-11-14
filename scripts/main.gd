@@ -12,6 +12,8 @@ const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const BACKGROUND_MUSIC = preload("res://assets/in_the_dark.wav")
 const VIEW := Vector2(1152, 648)
 const PLAYER_SCREEN_X := 90.0
+const STAGE_VERTICAL_OFFSET := -40.0
+const CAMERA_CENTER_Y := 380.0
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
 var world: Node2D
@@ -386,7 +388,7 @@ func build_level(index: int) -> void:
 	player.modulate = Color(current_theme["player_tint"])
 	# Level geometry is authored in a 1152x648 world-space viewport, with the
 	# platforms and player around y=450-570. Keep that area inside the camera.
-	camera.position = Vector2(level_spawn.x + VIEW.x * 0.5 - PLAYER_SCREEN_X, VIEW.y * 0.5)
+	camera.position = Vector2(level_spawn.x + VIEW.x * 0.5 - PLAYER_SCREEN_X, CAMERA_CENTER_Y)
 	prepare_next_stage()
 	play_level_music(stage_index)
 	update_stats()
@@ -403,20 +405,20 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 	current_theme = data["theme"]
 	if not preview:
 		apply_level_theme(current_theme, transition)
-		level_spawn = data["spawn"] + Vector2(offset, 0.0)
+		level_spawn = data["spawn"] + Vector2(offset, STAGE_VERTICAL_OFFSET)
 	for rect: Rect2 in data["platforms"]:
-		create_platform(Rect2(rect.position + Vector2(offset, 0.0), rect.size))
+		create_platform(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
 	for platform_data: Dictionary in data["moving"]:
 		var moving_rect: Rect2 = platform_data["rect"]
 		create_platform(
-			Rect2(moving_rect.position + Vector2(offset, 0.0), moving_rect.size),
+			Rect2(moving_rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), moving_rect.size),
 			true,
 			platform_data["travel"]
 		)
 	for rect: Rect2 in data["hazards"]:
-		create_hazard(Rect2(rect.position + Vector2(offset, 0.0), rect.size))
+		create_hazard(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
 	var portal = GOAL_SCRIPT.new()
-	portal.position = data["goal"] + Vector2(offset, 0.0)
+	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET)
 	portal.scale = Vector2(1.7, 1.7)
 	portal.color_a = Color(data["theme"]["platform_accent"])
 	portal.preview_data = levels[(index + 1) % levels.size()]
@@ -579,13 +581,14 @@ func spawn_death_bounce_pads(fall_position: Vector2) -> void:
 		existing_pads.pop_front().queue_free()
 	for _index in range(2):
 		var pad = BOUNCE_PAD_SCRIPT.new()
-		pad.position = Vector2(fall_position.x + randf_range(-78.0, 78.0), randf_range(696.0, 710.0))
+		pad.position = Vector2(fall_position.x + randf_range(-78.0, 78.0), randf_range(650.0, 652.0))
 		pad.rotation = randf_range(-0.22, 0.22)
 		pad.rotation_speed = randf_range(-0.8, 0.8)
-		pad.orbit_radius = randf_range(10.0, 24.0)
+		pad.orbit_radius = randf_range(8.0, 12.0)
 		pad.orbit_speed = randf_range(-0.9, 0.9)
 		pad.orbit_phase = randf_range(0.0, TAU)
 		pad.glow_color = Color(current_theme["platform_accent"])
+		pad.bounce_power = 642.0
 		active_stage_root.add_child(pad)
 
 func finish_respawn(_safe_position: Vector2) -> void:
@@ -655,7 +658,7 @@ func advance_stage() -> void:
 	active_stage_root = preview_stage_root
 	preview_stage_root = null
 	current_theme = next_data["theme"]
-	level_spawn = next_data["spawn"] + Vector2(stage_offset, 0.0)
+	level_spawn = next_data["spawn"] + Vector2(stage_offset, STAGE_VERTICAL_OFFSET)
 	apply_level_theme(current_theme, true)
 	play_level_music(stage_index)
 	if current_powerup.is_empty():
