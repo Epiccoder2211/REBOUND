@@ -1,0 +1,17 @@
+78098b89c88a74ebe8c20117b8754620
+::res://::1794689728
+AGENTS.md::TextFile::-1::1794676473::0::1::::<><><>0<>0<><>::
+main.tscn::PackedScene::-1::1794678369::0::1::::<><><>0<>0<><>::res://scripts/main.gd
+README.md::TextFile::-1::1794682232::0::1::::<><><>0<>0<><>::
+TEAM_WORKFLOW.md::TextFile::-1::1794676473::0::1::::<><><>0<>0<><>::
+::res://assets/::1794683951
+in_the_dark.wav::AudioStreamWAV::5917276486064827931::1794683843::1794689729::1::::<><><>0<>0<>f93bb7b85b287c86b35d2565b61bed44<>res://.godot/imported/in_the_dark.wav-cf0c71ccbf9e4aee3adf571a4f63ced8.sample::
+nebula_background.gdshader::Shader::7570914573285291542::1794679128::0::1::::<><><>0<>0<><>::
+platform_glow.gdshader::Shader::439269815393418250::1794678442::0::1::::<><><>0<>0<><>::
+::res://scripts/::1794689660
+goal.gd::GDScript::3457063617227501757::1794684676::0::1::::<>Area2D<><>0<>0<><>::
+hazard.gd::GDScript::5293972267807870067::1794676473::0::1::::<>Area2D<><>0<>0<><>::
+main.gd::GDScript::456641990598836848::1794689658::0::1::::<>Node2D<><>0<>0<><>::
+moving_platform.gd::GDScript::7269890358959541048::1794678586::0::1::::<>AnimatableBody2D<><>0<>0<><>::
+player.gd::GDScript::4937260699079718925::1794676473::0::1::::<>CharacterBody2D<><>0<>0<><>::
+spring.gd::GDScript::4853244189172047086::1794676473::0::1::::<>Area2D<><>0<>0<><>::
