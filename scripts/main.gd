@@ -529,8 +529,9 @@ func activate_powerup() -> void:
 	if direction == 0.0:
 		direction = 1.0
 	player.bounce(current_powerup["bounce"])
-	if current_powerup["dash"] > 0.0:
-		player.velocity.x = direction * current_powerup["dash"]
+	var dash_power: float = float(current_powerup.get("dash", 0.0))
+	if dash_power > 0.0:
+		player.velocity.x = direction * dash_power
 	message_label.text = current_powerup["name"] + " BOOST!"
 	message_timeout = 1.5
 	current_powerup.clear()
