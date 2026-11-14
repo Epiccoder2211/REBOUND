@@ -1,0 +1,157 @@
+extends SceneTree
+const MANAGER = preload("res://scripts/progression_manager.gd")
+const PLAYER = preload("res://scripts/player.gd")
+const PERSONAL = preload("res://ui/personalization/personalization.tscn")
+const DEMO = preload("res://ui/menus/polish_demo.tscn")
+var checks := 0
+var failures := 0
+func _initialize() -> void:
+	call_deferred("run")
+func check(ok: bool, label: String) -> void:
+	checks += 1
+	if ok:
+		print("PASS: ",label)
+	else:
+		failures += 1
+		push_error("FAIL: "+label)
+func run() -> void:
+	var directory := OS.get_environment("REBOUND_TEST_DIR")
+	if directory.is_empty():
+		directory = OS.get_user_data_dir()
+	var path := directory.path_join("rebound-polish-%d.json" % OS.get_process_id())
+	var manager := MANAGER.new(path)
+	manager.auto_save = false
+	root.add_child(manager)
+	manager.set_process(false)
+	var player := PLAYER.new()
+	root.add_child(player)
+	player.set_physics_process(false)
+	manager.bind_player(player)
+	var catalog: Dictionary = manager.get_cosmetic_definitions()
+	var counts := {"skin":0,"trail":0,"glow":0}
+	for id in catalog:
+		counts[catalog[id]["slot"]] += 1
+	check(counts == {"skin":5,"trail":4,"glow":5},"base cosmetics plus four milestone gifts")
+	check(manager.get_owned_cosmetics().size() == 3,"default cosmetics owned for free")
+	check(not manager.purchase_cosmetic("skin_solar"),"unaffordable cosmetic rejected")
+	check(not manager.equip_cosmetic("skin_solar"),"unowned cosmetic cannot be equipped")
+	check(not manager.purchase_cosmetic("unknown"),"unknown cosmetic rejected")
+	manager.add_coins(1000,"test/grant")
+	check(manager.purchase_cosmetic("skin_solar") and manager.coins == 920,"cosmetic purchase debits exact cost")
+	check(not manager.purchase_cosmetic("skin_solar") and manager.coins == 920,"duplicate cosmetic purchase rejected")
+	player.velocity = Vector2(123,-222)
+	player.unlock_ability("dash") # cosmetics must not reapply ability progression
+	player.dash_available = false
+	var velocity_before: Vector2 = player.velocity
+	check(manager.equip_cosmetic("skin_solar"),"owned cosmetic equips")
+	check(player.cosmetic_appearance["core"] == catalog["skin_solar"]["color"],"equipped palette reaches actual player")
+	check(player.velocity == velocity_before and player.dash_unlocked and not player.dash_available,"equipping never mutates movement or ability state")
+	check(not manager.equip_cosmetic("skin_solar"),"re-equipping current item is idempotent")
+	for id in ["trail_gold","glow_royal"]:
+		manager.purchase_cosmetic(id)
+		manager.equip_cosmetic(id)
+	check(manager.get_equipped_cosmetics() == {"skin":"skin_solar","trail":"trail_gold","glow":"glow_royal"},"cosmetic slots equip independently")
+	check(manager.save_progression(),"cosmetic save succeeds")
+	var loaded := MANAGER.new(path)
+	loaded.auto_save = false
+	root.add_child(loaded)
+	loaded.set_process(false)
+	check(loaded.get_equipped_cosmetics() == manager.get_equipped_cosmetics() and loaded.coins == manager.coins,"cosmetic ownership, selection, and currency survive reload")
+	var replacement := PLAYER.new()
+	root.add_child(replacement)
+	replacement.set_physics_process(false)
+	loaded.bind_player(replacement)
+	check(replacement.cosmetic_appearance == player.cosmetic_appearance,"replacement player receives equipped appearance")
+	replacement.die()
+	replacement.respawn(Vector2(100,100))
+	check(replacement.cosmetic_appearance == player.cosmetic_appearance,"appearance survives death and respawn")
+	# Version 1 saves without cosmetic fields remain valid and keep all currency.
+	var legacy: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	legacy.erase("owned_cosmetics")
+	legacy.erase("equipped_cosmetics")
+	var file := FileAccess.open(path+".legacy",FileAccess.WRITE)
+	file.store_string(JSON.stringify(legacy))
+	file.close()
+	var old := MANAGER.new(path+".legacy")
+	old.auto_save = false
+	root.add_child(old)
+	check(old.coins == manager.coins and old.get_owned_cosmetics().size() == 3,"old saves retain progression with cosmetic defaults")
+	loaded._load_cosmetics({"owned_cosmetics":["skin_solar","bogus"],"equipped_cosmetics":{"skin":"skin_void","trail":"skin_solar","glow":123}})
+	check(loaded.get_equipped_cosmetics() == {"skin":"skin_echo","trail":"trail_cyan","glow":"glow_standard"},"invalid, wrong-slot, and unowned selections fall back safely")
+	var menu := PERSONAL.instantiate()
+	root.add_child(menu)
+	menu.bind_progression(manager)
+	menu._select("skin_void")
+	check(menu._buttons.size() == 14 and menu._preview.appearance["core"] == catalog["skin_void"]["color"],"personalization creates all options and previews selected palette")
+	check(manager.get_equipped_cosmetics()["skin"] == "skin_solar","preview does not equip or mutate player")
+	menu.open_tree()
+	check(paused and not player.active,"personalization pauses gameplay")
+	menu._purchase.pressed.emit()
+	check("skin_void" in manager.get_owned_cosmetics() and menu._purchase.text == "Equip","UI purchase updates to Equip")
+	menu._purchase.pressed.emit()
+	check(manager.get_equipped_cosmetics()["skin"] == "skin_void" and menu._purchase.disabled,"UI equips and marks current selection")
+	menu.close_tree()
+	check(not paused and player.active and player._resume_input_guard,"personalization closes with guarded resume")
+	var notice = load("res://ui/shared/reward_notifications.gd").new()
+	root.add_child(notice)
+	notice.bind_progression(manager)
+	manager.collect_coin("test/coin/1")
+	manager.collect_coin("test/coin/2")
+	check(notice._items.size() == 1 and notice._items[0]["amount"] == 10,"rapid coin notifications coalesce")
+	manager.complete_comeback("test/comeback")
+	check(notice._items.size() == 2 and notice._items[1]["reason"] == "Comeback","milestone notification remains distinct")
+	for i in range(5):
+		notice._reward(10,"test %d" % i)
+	check(notice._items.size() == 3,"notification count bounded at three")
+	var coin = load("res://scripts/echo_coin.gd").new()
+	coin.configure(manager,"test/coin/burst")
+	root.add_child(coin)
+	var balance_before: int = manager.coins
+	coin._on_body_entered(player)
+	coin._on_body_entered(player)
+	check(manager.coins == balance_before+5 and coin._claimed and not coin.is_queued_for_deletion(),"coin pickup scores once and retains only its visual burst")
+	coin._process(0.4)
+	check(coin.is_queued_for_deletion(),"pickup effect cleans itself up")
+	# Exercise the real host navigation, not a separate mock menu stack.
+	var demo := DEMO.instantiate()
+	demo.onboarding_enabled = false
+	demo.demo_save_path = path+".demo"
+	root.add_child(demo)
+	demo.progression.auto_save = false
+	check(demo.main_menu.visible and paused,"polished demo starts on main menu")
+	demo.main_menu._actions["nexus"].pressed.emit()
+	check(demo.nexus.visible and not demo.main_menu.visible and paused,"main menu opens Nexus without losing pause")
+	demo.nexus.close_tree()
+	check(demo.main_menu.visible and paused,"Nexus returns to main menu")
+	demo.main_menu._actions["personalization"].pressed.emit()
+	check(demo.personalization.visible and paused,"main menu opens Personalization")
+	demo.personalization.close_tree()
+	demo.main_menu._actions["help"].pressed.emit()
+	check(demo.help_menu.visible and paused,"How to Play opens")
+	demo.help_menu.close_tree()
+	demo.main_menu._actions["start"].pressed.emit()
+	check(not paused and demo.player.active and not demo.main_menu.visible,"Start Journey resumes arena")
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	demo._input(escape)
+	check(demo.pause_menu.visible and paused,"Escape opens pause menu")
+	demo.pause_menu._actions["personalization"].pressed.emit()
+	demo.personalization.close_tree()
+	check(demo.pause_menu.visible and paused,"child menu returns to paused parent")
+	demo.pause_menu._actions["resume"].pressed.emit()
+	check(not paused and demo.player.active,"Resume returns to gameplay")
+	demo._input(escape)
+	demo.pause_menu._actions["restart"].pressed.emit()
+	check(demo.summary_menu.visible and demo.player.global_position == Vector2(100,520),"Restart ends run and restores safe test spawn")
+	demo.summary_menu.close_tree()
+	demo.main_menu._actions["start"].pressed.emit()
+	demo._input(escape)
+	demo.pause_menu._actions["menu"].pressed.emit()
+	check(demo.summary_menu.visible and paused,"Quit to Menu summarizes run")
+	demo.summary_menu.close_tree()
+	check(demo.main_menu.visible and paused,"Summary returns to main menu")
+	demo.main_menu.close_tree()
+	check(manager.coins >= 0,"cosmetic wallet never negative")
+	print("POLISH CHECKS: %d passed, %d failed" % [checks-failures,failures])
+	quit(0 if failures == 0 else 1)
