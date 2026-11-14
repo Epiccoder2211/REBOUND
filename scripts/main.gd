@@ -418,7 +418,8 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 	portal.position = data["goal"] + Vector2(offset, 0.0)
 	portal.scale = Vector2(1.7, 1.7)
 	portal.color_a = Color(data["theme"]["platform_accent"])
-	portal.color_b = Color(levels[(index + 1) % levels.size()]["theme"]["platform_accent"])
+	portal.preview_data = levels[(index + 1) % levels.size()]
+	portal.color_b = Color(portal.preview_data["theme"]["platform_accent"])
 	stage_root.add_child(portal)
 	portal.reached.connect(on_goal_reached)
 	if not preview:
