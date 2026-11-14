@@ -62,6 +62,8 @@ func _process(delta: float) -> void:
 		respawn_card.modulate.a = minf(1.0, (1.6 - respawn_timer) * 5.0)
 		if respawn_timer == 0.0:
 			respawn_card.visible = false
+			if is_instance_valid(player) and state == "playing":
+				player.active = true
 	update_stats()
 
 func create_background() -> void:
@@ -159,7 +161,7 @@ func resume_game() -> void:
 	shade.visible = false
 	hud.visible = true
 	if is_instance_valid(player):
-		player.active = true
+		player.active = respawn_timer <= 0.0
 	message_label.text = ""
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -235,6 +237,15 @@ func apply_level_theme(theme: Dictionary) -> void:
 	background_material.set_shader_parameter("atmosphere_strength", theme["atmosphere_strength"])
 	background_material.set_shader_parameter("star_strength", theme["star_strength"])
 	background_material.set_shader_parameter("flow_speed", theme["flow_speed"])
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color = Color(theme["background_floor"])
+	card_style.border_color = Color(theme["platform_accent"])
+	card_style.set_border_width_all(2)
+	card_style.set_corner_radius_all(16)
+	card_style.set_content_margin_all(18)
+	respawn_card.add_theme_stylebox_override("panel", card_style)
+	respawn_title.add_theme_color_override("font_color", Color(theme["platform_accent"]))
+	respawn_subtitle.add_theme_color_override("font_color", Color(theme["platform_highlight"]))
 
 func create_platform(rect: Rect2, moving: bool = false, travel: float = 0.0) -> void:
 	var body: PhysicsBody2D
@@ -338,6 +349,7 @@ func finish_respawn(safe_position: Vector2) -> void:
 			var oldest = springs.pop_front()
 			oldest.queue_free()
 	player.respawn(level_spawn)
+	player.active = false
 	message_label.text = ""
 	message_timeout = 0.0
 	respawn_title.text = "REBOUND"
