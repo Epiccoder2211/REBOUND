@@ -228,15 +228,16 @@ func build_stage(index: int, offset: float, transition: bool) -> void:
 	apply_level_theme(current_theme, transition)
 	level_spawn = data["spawn"] + Vector2(offset, 0.0)
 	for rect: Rect2 in data["platforms"]:
-		create_platform(rect.translated(Vector2(offset, 0.0)))
+		create_platform(Rect2(rect.position + Vector2(offset, 0.0), rect.size))
 	for platform_data: Dictionary in data["moving"]:
+		var moving_rect: Rect2 = platform_data["rect"]
 		create_platform(
-			platform_data["rect"].translated(Vector2(offset, 0.0)),
+			Rect2(moving_rect.position + Vector2(offset, 0.0), moving_rect.size),
 			true,
 			platform_data["travel"]
 		)
 	for rect: Rect2 in data["hazards"]:
-		create_hazard(rect.translated(Vector2(offset, 0.0)))
+		create_hazard(Rect2(rect.position + Vector2(offset, 0.0), rect.size))
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, 0.0)
 	world.add_child(portal)
