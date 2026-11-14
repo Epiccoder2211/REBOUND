@@ -219,7 +219,9 @@ func build_level(index: int) -> void:
 	player.global_position = level_spawn
 	player.safe_position = level_spawn
 	player.modulate = Color(current_theme["player_tint"])
-	camera.position = Vector2.ZERO
+	# Level geometry is authored in a 1152x648 world-space viewport, with the
+	# platforms and player around y=450-570. Keep that area inside the camera.
+	camera.position = Vector2(0.0, VIEW.y * 0.5)
 	update_stats()
 
 func build_stage(index: int, offset: float, transition: bool) -> void:
