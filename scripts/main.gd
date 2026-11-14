@@ -586,7 +586,9 @@ func create_recovery_pads(stage_root: Node2D, anchor_x: float) -> void:
 		var pad = BOUNCE_PAD_SCRIPT.new()
 		stage_root.add_child(pad)
 		pad.activated.connect(on_recovery_pad_activated)
-		var pad_position := find_recovery_pad_position(stage_root, anchor_x, -RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5, pad)
+		var min_offset := -RECOVERY_PAD_SPACING * 0.5 if pad_index == 0 else RECOVERY_PAD_SPACING * 0.5
+		var max_offset := RECOVERY_PAD_SPACING * 0.5 if pad_index == 0 else RECOVERY_PAD_SPACING * 1.5
+		var pad_position := find_recovery_pad_position(stage_root, anchor_x, min_offset, max_offset, pad)
 		pad.randomize_at(pad_position, RECOVERY_PAD_CHANCE)
 		pad.discovered = true
 		pad.visible = true
