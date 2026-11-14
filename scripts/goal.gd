@@ -1,5 +1,5 @@
 extends Area2D
-## Glowing golden portal at the end of each level.
+## Tall glowing gate that frames the next level beyond it.
 
 signal reached
 var phase := 0.0
@@ -27,7 +27,11 @@ func _on_body_entered(body: Node2D) -> void:
 
 func _draw() -> void:
     var pulse := 1.0 + sin(phase) * 0.10
-    draw_circle(Vector2.ZERO, 40.0 * pulse, Color(1.0, 0.78, 0.23, 0.07))
-    draw_circle(Vector2.ZERO, 31.0 * pulse, Color(1.0, 0.73, 0.19, 0.17))
-    draw_arc(Vector2.ZERO, 23.0 * pulse, 0.0, TAU, 44, Color("ffd375"), 5.0, true)
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2(0.82, 1.36))
+    draw_circle(Vector2.ZERO, 58.0 * pulse, Color(1.0, 0.78, 0.23, 0.045))
+    draw_circle(Vector2.ZERO, 47.0 * pulse, Color(1.0, 0.73, 0.19, 0.10))
+    draw_arc(Vector2.ZERO, 39.0 * pulse, 0.0, TAU, 64, Color(1.0, 0.68, 0.22, 0.45), 12.0, true)
+    draw_arc(Vector2.ZERO, 31.0 * pulse, 0.0, TAU, 64, Color("ffd375"), 5.0, true)
+    draw_arc(Vector2(0, -2), 22.0 * pulse, phase * 0.35, phase * 0.35 + TAU * 0.78, 48, Color("fff0b0"), 2.5, true)
     draw_circle(Vector2.ZERO, 8.0, Color("ffebae"))
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

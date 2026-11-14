@@ -33,7 +33,16 @@ var background_material: ShaderMaterial
 var current_theme: Dictionary = {}
 var camera: Camera2D
 var current_powerup: Dictionary = {}
+var powerup_used := false
 var theme_tween: Tween
+var active_stage_root: Node2D
+var preview_stage_root: Node2D
+var preview_stage_offset := 0.0
+var retiring_stage_root: Node2D
+var retire_stage_after_x := 0.0
+var music_player: AudioStreamPlayer
+var music_tween: Tween
+var music_streams: Array = []
 
 var hud: Control
 var info_label: Label
@@ -61,6 +70,7 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	create_ui()
+	create_music_player()
 	build_level(0)
 	show_menu()
 
@@ -70,6 +80,9 @@ func _process(delta: float) -> void:
 		if is_instance_valid(player):
 			camera.position.x = player.global_position.x + VIEW.x * 0.5 - PLAYER_SCREEN_X
 			furthest_x = maxf(furthest_x, player.global_position.x)
+			if is_instance_valid(retiring_stage_root) and player.global_position.x > retire_stage_after_x:
+				retiring_stage_root.queue_free()
+				retiring_stage_root = null
 	if message_timeout > 0.0:
 		message_timeout -= delta
 		if message_timeout <= 0.0:
@@ -97,6 +110,75 @@ func create_background() -> void:
 	background_material.shader = BACKGROUND_SHADER
 	background.material = background_material
 	background_layer.add_child(background)
+
+func create_music_player() -> void:
+	music_player = AudioStreamPlayer.new()
+	music_player.name = "ProceduralLevelMusic"
+	music_player.volume_db = -17.0
+	add_child(music_player)
+	for level_index in range(4):
+		music_streams.append(create_level_music(level_index))
+
+func create_level_music(level_index: int) -> AudioStreamWAV:
+	var tempos := [76.0, 94.0, 112.0, 132.0]
+	var bpm: float = tempos[level_index % tempos.size()]
+	var sample_rate := 11025
+	var duration := 16.0 * 60.0 / bpm
+	var sample_count := int(sample_rate * duration)
+	var chord_roots := [196.0, 174.61, 146.83, 164.81]
+	var melody_ratios := [1.5, 1.25, 1.5, 2.0, 1.78, 1.5, 1.25, 1.0]
+	var intensity := float(level_index) / 3.0
+	var samples := PackedByteArray()
+	samples.resize(sample_count * 2)
+	for sample_index in range(sample_count):
+		var time := float(sample_index) / float(sample_rate)
+		var beat_position := time * bpm / 60.0
+		var beat_index := int(floor(beat_position)) % 16
+		var chord_index := int(beat_index / 4) % chord_roots.size()
+		var root: float = chord_roots[chord_index]
+		var melody_frequency: float = root * melody_ratios[beat_index % melody_ratios.size()]
+		var pad := sin(TAU * root * time) * 0.11 + sin(TAU * root * 1.5 * time) * 0.045
+		var melody_gain := 0.025 + intensity * 0.055
+		if level_index == 0 and beat_index % 2 != 0:
+			melody_gain *= 0.22
+		var music_sample := pad + sin(TAU * melody_frequency * time) * melody_gain
+		if level_index > 0:
+			var beat_phase := fposmod(beat_position, 1.0)
+			music_sample += sin(TAU * (48.0 + 34.0 * (1.0 - beat_phase)) * time) * exp(-beat_phase * 15.0) * (0.035 + intensity * 0.085)
+			if level_index > 1 and beat_index % 4 == 2:
+				music_sample += sin(TAU * 180.0 * time) * exp(-beat_phase * 22.0) * 0.045
+		var edge_fade := minf(1.0, minf(time * 10.0, (duration - time) * 10.0))
+		var pcm := int(clampf(music_sample * edge_fade, -0.85, 0.85) * 32767.0)
+		samples.encode_s16(sample_index * 2, pcm)
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = sample_rate
+	stream.stereo = false
+	stream.data = samples
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = sample_count
+	return stream
+
+func play_level_music(level_index: int) -> void:
+	if music_streams.is_empty():
+		return
+	var next_stream: AudioStreamWAV = music_streams[level_index % music_streams.size()]
+	if music_player.stream == next_stream and music_player.playing:
+		return
+	if music_tween and music_tween.is_running():
+		music_tween.kill()
+	if music_player.playing:
+		music_tween = create_tween()
+		music_tween.tween_property(music_player, "volume_db", -36.0, 0.3)
+		music_tween.tween_callback(func() -> void:
+			music_player.stream = next_stream
+			music_player.play()
+		)
+		music_tween.tween_property(music_player, "volume_db", -17.0, 0.8)
+	else:
+		music_player.stream = next_stream
+		music_player.play()
 
 func create_ui() -> void:
 	var layer := CanvasLayer.new()
@@ -176,7 +258,7 @@ func show_overlay(title: String, subtitle: String, instruction: String) -> void:
 
 func show_menu() -> void:
 	state = "menu"
-	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nEvery stage flows into the next. Reach each portal to set a checkpoint.\nA fall grants a boost—press P whenever you want to use it.\nSKYBOUND • COMET DASH • PRISM KICK", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE BOOST AFTER A FALL")
+	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nJump through each giant gate and keep moving into the next stage.\nYour first fall grants one boost for the entire run.\nSKYBOUND • COMET DASH • PRISM KICK", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE YOUR ONE-TIME BOOST")
 
 func resume_game() -> void:
 	state = "playing"
@@ -220,6 +302,8 @@ func build_level(index: int) -> void:
 	furthest_x = 0.0
 	falls = 0
 	current_powerup.clear()
+	powerup_used = false
+	preview_stage_root = null
 	build_stage(stage_index, stage_offset, false)
 	player.global_position = level_spawn
 	player.safe_position = level_spawn
@@ -227,13 +311,23 @@ func build_level(index: int) -> void:
 	# Level geometry is authored in a 1152x648 world-space viewport, with the
 	# platforms and player around y=450-570. Keep that area inside the camera.
 	camera.position = Vector2(level_spawn.x + VIEW.x * 0.5 - PLAYER_SCREEN_X, VIEW.y * 0.5)
+	prepare_next_stage()
+	play_level_music(stage_index)
 	update_stats()
 
-func build_stage(index: int, offset: float, transition: bool) -> void:
+func build_stage(index: int, offset: float, transition: bool, preview: bool = false) -> Node2D:
 	var data: Dictionary = levels[index % levels.size()]
+	var previous_theme := current_theme
+	var previous_root := active_stage_root
+	var previous_spawn := level_spawn
+	var stage_root := Node2D.new()
+	stage_root.name = "Stage_%d" % (index + 1)
+	world.add_child(stage_root)
+	active_stage_root = stage_root
 	current_theme = data["theme"]
-	apply_level_theme(current_theme, transition)
-	level_spawn = data["spawn"] + Vector2(offset, 0.0)
+	if not preview:
+		apply_level_theme(current_theme, transition)
+		level_spawn = data["spawn"] + Vector2(offset, 0.0)
 	for rect: Rect2 in data["platforms"]:
 		create_platform(Rect2(rect.position + Vector2(offset, 0.0), rect.size))
 	for platform_data: Dictionary in data["moving"]:
@@ -247,17 +341,24 @@ func build_stage(index: int, offset: float, transition: bool) -> void:
 		create_hazard(Rect2(rect.position + Vector2(offset, 0.0), rect.size))
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, 0.0)
-	world.add_child(portal)
+	portal.scale = Vector2(1.7, 1.7)
+	stage_root.add_child(portal)
 	portal.reached.connect(on_goal_reached)
-	tip_label.text = data["tip"]
-	message_label.text = ""
-	update_stats()
+	if not preview:
+		tip_label.text = data["tip"]
+		message_label.text = ""
+		update_stats()
+	else:
+		current_theme = previous_theme
+		active_stage_root = previous_root
+		level_spawn = previous_spawn
+	return stage_root
 
-func remove_stage_geometry() -> void:
-	for item in world.get_children():
-		if item != player:
-			world.remove_child(item)
-			item.queue_free()
+func prepare_next_stage() -> void:
+	var current_data: Dictionary = levels[stage_index % levels.size()]
+	var next_data: Dictionary = levels[(stage_index + 1) % levels.size()]
+	preview_stage_offset = stage_offset + current_data["goal"].x - next_data["spawn"].x + 210.0
+	preview_stage_root = build_stage(stage_index + 1, preview_stage_offset, false, true)
 
 func apply_level_theme(theme: Dictionary, animate: bool = false) -> void:
 	var color_parameters := {
@@ -359,13 +460,13 @@ func create_platform(rect: Rect2, moving: bool = false, travel: float = 0.0) -> 
 	outline.width = 1.5
 	outline.default_color = Color(current_theme["platform_outline"])
 	body.add_child(outline)
-	world.add_child(body)
+	active_stage_root.add_child(body)
 
 func create_hazard(rect: Rect2) -> void:
 	var hazard = HAZARD_SCRIPT.new()
 	hazard.position = rect.position + rect.size * 0.5
 	hazard.hazard_size = rect.size
-	world.add_child(hazard)
+	active_stage_root.add_child(hazard)
 	var spike_count := maxi(1, int(rect.size.x / 16.0))
 	var spike_width := rect.size.x / float(spike_count)
 	for spike_index in range(spike_count):
@@ -389,20 +490,32 @@ func finish_respawn(_safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
-	current_powerup = POWERUPS[(falls - 1) % POWERUPS.size()]
 	player.respawn(level_spawn)
-	player.active = false
-	player.modulate = Color(current_powerup["color"])
-	message_label.text = ""
-	message_timeout = 0.0
-	respawn_title.text = "POWER UP: " + current_powerup["name"]
-	respawn_subtitle.text = current_powerup["description"]
-	respawn_card.visible = true
-	respawn_card.modulate.a = 0.0
-	respawn_timer = 1.6
+	if current_powerup.is_empty() and not powerup_used:
+		current_powerup = POWERUPS[(falls - 1) % POWERUPS.size()]
+	if not current_powerup.is_empty():
+		player.active = false
+		player.modulate = Color(current_powerup["color"])
+		message_label.text = ""
+		message_timeout = 0.0
+		respawn_title.text = "POWER UP: " + current_powerup["name"]
+		respawn_subtitle.text = current_powerup["description"]
+		respawn_card.visible = true
+		respawn_card.modulate.a = 0.0
+		respawn_timer = 1.6
+	else:
+		player.modulate = Color(current_theme["player_tint"])
+		respawn_card.visible = false
+		respawn_timer = 0.0
 
 func activate_powerup() -> void:
-	if state != "playing" or current_powerup.is_empty() or not is_instance_valid(player) or not player.active:
+	if state != "playing":
+		return
+	if current_powerup.is_empty():
+		message_label.text = "NO POWER UP AVAILABLE"
+		message_timeout = 1.5
+		return
+	if not is_instance_valid(player) or not player.active:
 		return
 	var direction := signf(Input.get_axis("ui_left", "ui_right"))
 	if direction == 0.0:
@@ -413,6 +526,8 @@ func activate_powerup() -> void:
 	message_label.text = current_powerup["name"] + " BOOST!"
 	message_timeout = 1.5
 	current_powerup.clear()
+	powerup_used = true
+	player.modulate = Color(current_theme["player_tint"])
 
 func show_powerup_prompt() -> void:
 	if current_powerup.is_empty():
@@ -427,13 +542,23 @@ func on_goal_reached() -> void:
 func advance_stage() -> void:
 	if state != "playing":
 		return
-	var old_data: Dictionary = levels[stage_index % levels.size()]
+	if is_instance_valid(retiring_stage_root):
+		retiring_stage_root.queue_free()
+	retiring_stage_root = active_stage_root
+	retire_stage_after_x = player.global_position.x + 220.0
 	stage_index += 1
 	var next_data: Dictionary = levels[stage_index % levels.size()]
-	stage_offset += old_data["goal"].x - next_data["spawn"].x + 120.0
-	remove_stage_geometry()
-	build_stage(stage_index, stage_offset, true)
-	player.respawn(level_spawn)
+	stage_offset = preview_stage_offset
+	active_stage_root = preview_stage_root
+	preview_stage_root = null
+	current_theme = next_data["theme"]
+	level_spawn = next_data["spawn"] + Vector2(stage_offset, 0.0)
+	apply_level_theme(current_theme, true)
+	play_level_music(stage_index)
+	if current_powerup.is_empty():
+		player.modulate = Color(current_theme["player_tint"])
+	tip_label.text = next_data["tip"]
+	prepare_next_stage()
 	message_label.text = "CHECKPOINT  •  STAGE %d" % (stage_index + 1)
 	message_timeout = 2.0
 	update_stats()
@@ -461,9 +586,9 @@ func make_levels() -> Array:
 			},
 			"spawn": Vector2(90, 542),
 			"goal": Vector2(1055, 418),
-			"platforms": [Rect2(0, 570, 300, 78), Rect2(370, 530, 180, 24), Rect2(610, 490, 180, 24), Rect2(850, 450, 302, 198)],
+			"platforms": [Rect2(0, 570, 250, 78), Rect2(330, 535, 138, 24), Rect2(548, 490, 132, 24), Rect2(765, 450, 387, 198)],
 			"moving": [],
-			"hazards": [],
+			"hazards": [Rect2(602, 450, 38, 10)],
 			"tip": "A / D OR ARROWS: MOVE    •    SPACE: JUMP    •    REACH THE PORTAL FOR A CHECKPOINT"
 		},
 		{
@@ -479,9 +604,9 @@ func make_levels() -> Array:
 			},
 			"spawn": Vector2(95, 550),
 			"goal": Vector2(1060, 378),
-			"platforms": [Rect2(0, 570, 270, 78), Rect2(330, 530, 160, 24), Rect2(540, 490, 160, 24), Rect2(750, 450, 160, 24), Rect2(960, 410, 192, 238)],
-			"moving": [],
-			"hazards": [Rect2(600, 450, 46, 10)],
+			"platforms": [Rect2(0, 570, 240, 78), Rect2(305, 535, 128, 24), Rect2(690, 450, 128, 24), Rect2(895, 410, 257, 238)],
+			"moving": [{"rect": Rect2(495, 490, 128, 24), "travel": 46.0}],
+			"hazards": [Rect2(343, 495, 40, 10), Rect2(730, 410, 42, 10)],
 			"tip": "SMALL, REGULAR JUMPS ARE ENOUGH. THE GLOWING BEAMS ARE DANGEROUS."
 		},
 		{
@@ -497,9 +622,9 @@ func make_levels() -> Array:
 			},
 			"spawn": Vector2(95, 542),
 			"goal": Vector2(1060, 378),
-			"platforms": [Rect2(0, 570, 270, 78), Rect2(330, 530, 160, 24), Rect2(750, 450, 160, 24), Rect2(960, 410, 192, 238)],
-			"moving": [{"rect": Rect2(548, 490, 144, 24), "travel": 18.0}],
-			"hazards": [Rect2(574, 438, 72, 10), Rect2(810, 410, 42, 10)],
+			"platforms": [Rect2(0, 570, 235, 78), Rect2(310, 535, 120, 24), Rect2(690, 450, 128, 24), Rect2(890, 410, 262, 238)],
+			"moving": [{"rect": Rect2(485, 490, 112, 24), "travel": 64.0}],
+			"hazards": [Rect2(518, 438, 52, 10), Rect2(730, 410, 44, 10), Rect2(915, 370, 42, 10)],
 			"tip": "WATCH FOR SPIKE BEAMS ABOVE THE PLATFORMS. LAND, THEN JUMP AGAIN."
 		},
 		{
@@ -515,9 +640,9 @@ func make_levels() -> Array:
 			},
 			"spawn": Vector2(75, 556),
 			"goal": Vector2(1060, 378),
-			"platforms": [Rect2(0, 570, 270, 78), Rect2(330, 530, 160, 24), Rect2(540, 490, 160, 24), Rect2(750, 450, 160, 24), Rect2(960, 410, 192, 238)],
-			"moving": [],
-			"hazards": [Rect2(396, 478, 48, 10), Rect2(852, 398, 48, 10)],
+			"platforms": [Rect2(0, 570, 230, 78), Rect2(300, 535, 116, 24), Rect2(660, 450, 116, 24), Rect2(990, 410, 162, 238)],
+			"moving": [{"rect": Rect2(470, 490, 108, 24), "travel": 62.0}, {"rect": Rect2(840, 410, 118, 24), "travel": 34.0}],
+			"hazards": [Rect2(340, 495, 38, 10), Rect2(700, 410, 40, 10), Rect2(867, 370, 44, 10)],
 			"tip": "FOUR STAGES REPEAT WITH NEW COLORS. YOUR METER NEVER STOPS CLIMBING."
 		}
 	]
