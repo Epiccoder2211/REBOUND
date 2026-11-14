@@ -418,7 +418,7 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 	for rect: Rect2 in data["hazards"]:
 		create_hazard(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
 	var portal = GOAL_SCRIPT.new()
-	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET)
+	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET - 70.0)
 	portal.scale = Vector2(1.7, 1.7)
 	portal.color_a = Color(data["theme"]["platform_accent"])
 	portal.preview_data = levels[(index + 1) % levels.size()]
@@ -577,16 +577,11 @@ func spawn_death_bounce_pads(fall_position: Vector2) -> void:
 	for child in active_stage_root.get_children():
 		if child.is_in_group("death_bounce_pad"):
 			existing_pads.append(child)
-	while existing_pads.size() > 6:
+	while existing_pads.size() > 5:
 		existing_pads.pop_front().queue_free()
-	for _index in range(2):
+	for pad_index in range(5):
 		var pad = BOUNCE_PAD_SCRIPT.new()
-		pad.position = Vector2(fall_position.x + randf_range(-78.0, 78.0), randf_range(650.0, 652.0))
-		pad.rotation = randf_range(-0.22, 0.22)
-		pad.rotation_speed = randf_range(-0.8, 0.8)
-		pad.orbit_radius = randf_range(8.0, 12.0)
-		pad.orbit_speed = randf_range(-0.9, 0.9)
-		pad.orbit_phase = randf_range(0.0, TAU)
+		pad.position = Vector2(fall_position.x + (float(pad_index) - 2.0) * 132.0, 640.0)
 		pad.glow_color = Color(current_theme["platform_accent"])
 		pad.bounce_power = 642.0
 		active_stage_root.add_child(pad)
