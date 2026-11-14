@@ -4,6 +4,7 @@ extends Area2D
 signal activated
 
 const FALL_GRAVITY := 1320.0
+const BOUNCE_HEIGHT_MULTIPLIER := 1.2
 
 var pad_width := 42.0
 var pad_height := 8.0
@@ -42,7 +43,7 @@ func _on_body_entered(body: Node2D) -> void:
 	visible = true
 	queue_redraw()
 	var fall_distance: float = maxf(0.0, body.global_position.y - body.safe_position.y)
-	var bounce_power := sqrt(2.0 * FALL_GRAVITY * fall_distance)
+	var bounce_power := sqrt(2.0 * FALL_GRAVITY * fall_distance) * BOUNCE_HEIGHT_MULTIPLIER
 	body.bounce(bounce_power)
 	activated.emit()
 

@@ -15,7 +15,7 @@ const PLAYER_SCREEN_X := 90.0
 const STAGE_VERTICAL_OFFSET := -40.0
 const CAMERA_CENTER_Y := 380.0
 const RECOVERY_PAD_COUNT := 5
-const RECOVERY_PAD_SPACING := 112.0
+const RECOVERY_PAD_SPACING := 180.0
 const RECOVERY_PAD_Y := 640.0
 const RECOVERY_PAD_CHANCE := 0.40
 const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
@@ -585,21 +585,25 @@ func create_recovery_pads(stage_root: Node2D, anchor_x: float) -> void:
 		var pad = BOUNCE_PAD_SCRIPT.new()
 		stage_root.add_child(pad)
 		pad.activated.connect(on_recovery_pad_activated)
-		var pad_position := find_recovery_pad_position(stage_root, anchor_x, -RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5)
-		pad.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_x_clear(stage_root, pad_position.x) else 0.0)
+		var pad_position := find_recovery_pad_position(stage_root, anchor_x, -RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5, pad)
+		pad.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_x_clear(stage_root, pad_position.x, pad) else 0.0)
 
-func find_recovery_pad_position(stage_root: Node2D, anchor_x: float, min_offset: float, max_offset: float) -> Vector2:
+func find_recovery_pad_position(stage_root: Node2D, anchor_x: float, min_offset: float, max_offset: float, ignored_pad: Node2D = null) -> Vector2:
 	var fallback := Vector2(anchor_x, RECOVERY_PAD_Y)
 	for attempt in range(64):
 		var candidate := Vector2(anchor_x + randf_range(min_offset, max_offset), RECOVERY_PAD_Y + randf_range(-80.0, 65.0))
-		if is_recovery_pad_x_clear(stage_root, candidate.x):
+		if is_recovery_pad_x_clear(stage_root, candidate.x, ignored_pad):
 			return candidate
 		fallback = candidate
 	return fallback
 
-func is_recovery_pad_x_clear(stage_root: Node2D, pad_x: float) -> bool:
+func is_recovery_pad_x_clear(stage_root: Node2D, pad_x: float, ignored_pad: Node2D = null) -> bool:
 	const PAD_HALF_WIDTH := 27.0
 	for body in stage_root.get_children():
+		if body == ignored_pad:
+			continue
+		if body.is_in_group("recovery_bounce_pad") and absf(pad_x - body.position.x) < RECOVERY_PAD_SPACING:
+			return false
 		if not body is PhysicsBody2D:
 			continue
 		var collider := body.get_node_or_null("CollisionShape2D") as CollisionShape2D
@@ -629,8 +633,8 @@ func cycle_recovery_pads() -> void:
 			continue
 		if child.position.x < player.global_position.x - RECOVERY_PAD_SPACING:
 			var side_offset := randf_range(RECOVERY_PAD_SPACING, wrap_distance)
-			var pad_position := find_recovery_pad_position(active_stage_root, player.global_position.x + side_offset, 0.0, RECOVERY_PAD_SPACING * 0.5)
-			child.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_x_clear(active_stage_root, pad_position.x) else 0.0)
+			var pad_position := find_recovery_pad_position(active_stage_root, player.global_position.x + side_offset, 0.0, RECOVERY_PAD_SPACING * 0.5, child)
+			child.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_x_clear(active_stage_root, pad_position.x, child) else 0.0)
 
 func finish_respawn(safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
@@ -664,8 +668,8 @@ func reset_recovery_pads(anchor_x: float) -> void:
 			if child.discovered:
 				continue
 			var side_offset := randf_range(-RECOVERY_PAD_SPACING * 3.5, RECOVERY_PAD_SPACING * 3.5)
-			var pad_position := find_recovery_pad_position(active_stage_root, anchor_x + side_offset, -RECOVERY_PAD_SPACING * 0.5, RECOVERY_PAD_SPACING * 0.5)
-			child.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_x_clear(active_stage_root, pad_position.x) else 0.0)
+			var pad_position := find_recovery_pad_position(active_stage_root, anchor_x + side_offset, -RECOVERY_PAD_SPACING * 0.5, RECOVERY_PAD_SPACING * 0.5, child)
+			child.randomize_at(pad_position, RECOVERY_PAD_CHANCE if is_recovery_pad_x_clear(active_stage_root, pad_position.x, child) else 0.0)
 
 func activate_powerup() -> void:
 	if state != "playing":
