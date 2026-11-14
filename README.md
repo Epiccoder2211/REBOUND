@@ -14,8 +14,8 @@ An original Godot 4.x 2D puzzle-platformer. It has four increasingly difficult s
 - A/D or Left/Right: move
 - Space: jump / proceed from menus
 - Escape: pause/resume
-- Fall off the bottom or hit a danger strip to receive a single power-up for the entire run.
-- Press P to use the power-up once. Further presses display “NO POWER UP AVAILABLE.”
+- Your first fall gives you one power-up: Skybound.
+- Press P once to use Skybound. It cannot be used again, and no other power-ups are available.
 - Jump through the large gate to continue directly onto the next stage.
 
 ## Important scripts

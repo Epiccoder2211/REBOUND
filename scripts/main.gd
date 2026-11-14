@@ -10,11 +10,7 @@ const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
 const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const VIEW := Vector2(1152, 648)
 const PLAYER_SCREEN_X := 90.0
-const POWERUPS := [
-	{"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0, "dash": 0.0},
-	{"name": "COMET DASH", "description": "A strong rebound and forward burst carry you across gaps.", "color": "ff9b67", "bounce": 650.0, "dash": 490.0},
-	{"name": "PRISM KICK", "description": "A balanced hop with a quick forward surge.", "color": "dc8cff", "bounce": 700.0, "dash": 380.0}
-]
+const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches you toward the next ledge.", "color": "73eaff", "bounce": 760.0}
 
 var world: Node2D
 var player
@@ -33,6 +29,7 @@ var background_material: ShaderMaterial
 var current_theme: Dictionary = {}
 var camera: Camera2D
 var current_powerup: Dictionary = {}
+var powerup_awarded := false
 var powerup_used := false
 var theme_tween: Tween
 var active_stage_root: Node2D
@@ -258,7 +255,7 @@ func show_overlay(title: String, subtitle: String, instruction: String) -> void:
 
 func show_menu() -> void:
 	state = "menu"
-	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nJump through each giant gate and keep moving into the next stage.\nYour first fall grants one boost for the entire run.\nSKYBOUND • COMET DASH • PRISM KICK", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE YOUR ONE-TIME BOOST")
+	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nJump through each giant gate and keep moving into the next stage.\nYour first fall gives you ONE power-up: SKYBOUND.\nUse it once with P. No other power-ups are available.", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE SKYBOUND ONCE")
 
 func resume_game() -> void:
 	state = "playing"
@@ -302,6 +299,7 @@ func build_level(index: int) -> void:
 	furthest_x = 0.0
 	falls = 0
 	current_powerup.clear()
+	powerup_awarded = false
 	powerup_used = false
 	preview_stage_root = null
 	build_stage(stage_index, stage_offset, false)
@@ -491,18 +489,26 @@ func finish_respawn(_safe_position: Vector2) -> void:
 		return
 	falls += 1
 	player.respawn(level_spawn)
-	if current_powerup.is_empty() and not powerup_used:
-		current_powerup = POWERUPS[(falls - 1) % POWERUPS.size()]
+	var just_awarded_powerup := false
+	if not powerup_awarded:
+		current_powerup = SKYBOUND.duplicate()
+		powerup_awarded = true
+		just_awarded_powerup = true
 	if not current_powerup.is_empty():
-		player.active = false
 		player.modulate = Color(current_powerup["color"])
-		message_label.text = ""
-		message_timeout = 0.0
-		respawn_title.text = "POWER UP: " + current_powerup["name"]
-		respawn_subtitle.text = current_powerup["description"]
-		respawn_card.visible = true
-		respawn_card.modulate.a = 0.0
-		respawn_timer = 1.6
+		if just_awarded_powerup:
+			player.active = false
+			message_label.text = ""
+			message_timeout = 0.0
+			respawn_title.text = "1 POWER-UP GIVEN"
+			respawn_subtitle.text = "SKYBOUND • Press P once to launch upward."
+			respawn_card.visible = true
+			respawn_card.modulate.a = 0.0
+			respawn_timer = 1.6
+		else:
+			respawn_card.visible = false
+			respawn_timer = 0.0
+			show_powerup_prompt()
 	else:
 		player.modulate = Color(current_theme["player_tint"])
 		respawn_card.visible = false
@@ -512,8 +518,10 @@ func activate_powerup() -> void:
 	if state != "playing":
 		return
 	if current_powerup.is_empty():
-		message_label.text = "NO POWER UP AVAILABLE"
+		message_label.text = "SKYBOUND ALREADY USED" if powerup_used else "NO POWER UP AVAILABLE"
 		message_timeout = 1.5
+		return
+	if powerup_used:
 		return
 	if not is_instance_valid(player) or not player.active:
 		return
