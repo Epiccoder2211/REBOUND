@@ -611,9 +611,8 @@ func finish_respawn(safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
 		return
 	falls += 1
-	# Keep the current stage layout as-is when the player dies so the world does
-	# not get rebuilt or its active objects cleared on respawn.
-	player.respawn(safe_position)
+	# Keep the current stage layout, but return the player to this stage's start.
+	player.respawn(level_spawn)
 	# Recovery pads stay where they were, but can save the player again after a fall.
 	if is_instance_valid(active_stage_root):
 		for child in active_stage_root.get_children():

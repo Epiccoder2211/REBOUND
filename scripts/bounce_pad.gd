@@ -4,7 +4,7 @@ extends Area2D
 signal activated
 
 var glow_color := Color("73eaff")
-var bounce_power := 650.0
+var bounce_power := 980.0
 var pulse := 0.0
 var pad_width := 42.0
 var pad_height := 8.0
@@ -22,16 +22,17 @@ func _ready() -> void:
 	collision.shape = shape
 	add_child(collision)
 	body_entered.connect(_on_body_entered)
+	body_exited.connect(_on_body_exited)
 
 func randomize_at(at: Vector2, spawn_chance: float = 0.3) -> void:
 	position = at
 	pad_width = randf_range(34.0, 54.0)
 	pad_height = randf_range(7.0, 10.0)
-	bounce_power = randf_range(620.0, 760.0)
+	bounce_power = randf_range(980.0, 1080.0)
 	activated_once = false
 	(collision.shape as RectangleShape2D).size = Vector2(pad_width, pad_height)
 	var spawned := randf() < spawn_chance
-	visible = false
+	visible = spawned
 	set_deferred("monitoring", spawned)
 	queue_redraw()
 
@@ -47,6 +48,10 @@ func _on_body_entered(body: Node2D) -> void:
 	body.bounce(bounce_power)
 	visible = true
 	activated.emit()
+
+func _on_body_exited(body: Node2D) -> void:
+	if body.has_method("bounce"):
+		activated_once = false
 
 func _draw() -> void:
 	var half_width := pad_width * 0.5
