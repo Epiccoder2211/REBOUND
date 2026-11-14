@@ -334,10 +334,10 @@ const PERSONALIZATION = preload("res://ui/personalization/personalization.tscn")
 var personalization: Control
 
 func setup_personalization(layer: CanvasLayer) -> void:
-    personalization = PERSONALIZATION.instantiate()
-    layer.add_child(personalization)
-    personalization.bind_progression(progression)
-    # C opens it by default. A menu button may call open_tree() instead.
+	personalization = PERSONALIZATION.instantiate()
+	layer.add_child(personalization)
+	personalization.bind_progression(progression)
+	# C opens it by default. A menu button may call open_tree() instead.
 ```
 
 It uses the same `open_tree()`/`close_tree()`, `opened`/`closed`, and
@@ -490,10 +490,10 @@ also resize to the intended submission resolution.
 15. Inspect hovering/spinning coins, magnet acceleration, one pickup burst per
     object, and automatic effect cleanup. No large obstructive pickup overlays.
 16. Verify Overdrive's gold orbit and expiration/death cleanup. Cosmetic colors
-    must not hide the special state. Check menu transitions do not advance it.
+	must not hide the special state. Check menu transitions do not advance it.
 17. Review all screens for clipping, contrast, coherent spacing/type, keyboard
-    navigation, and clarity at export resolution. Final audio and world-art
-    integration remain Ved's presentation work.
+	navigation, and clarity at export resolution. Final audio and world-art
+	integration remain Ved's presentation work.
 
 Additional automated suite:
 

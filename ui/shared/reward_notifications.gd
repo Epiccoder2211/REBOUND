@@ -32,7 +32,7 @@ func _draw() -> void:
 	for i in range(_items.size()):
 		var item: Dictionary = _items[i]
 		var alpha := minf(1.0, (2.3-float(item["age"])) / 0.35)
-		var at := Vector2(maxf(12,size.x-278),24+i*52)
+		var at := Vector2(maxf(12,size.x-278),82+i*52)
 		draw_style_box(_box(alpha),Rect2(at,Vector2(250,44)))
 		draw_string(ThemeDB.fallback_font,at+Vector2(14,28),"+%d  %s" % [item["amount"],item["reason"]],HORIZONTAL_ALIGNMENT_LEFT,-1,15,Color(1.0,0.85,0.52,alpha))
 func _box(alpha: float) -> StyleBoxFlat:

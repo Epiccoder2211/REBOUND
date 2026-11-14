@@ -6,6 +6,14 @@ const PLAYER_SCRIPT = preload("res://scripts/player.gd")
 const GOAL_SCRIPT = preload("res://scripts/goal.gd")
 const HAZARD_SCRIPT = preload("res://scripts/hazard.gd")
 const MOVING_SCRIPT = preload("res://scripts/moving_platform.gd")
+const PROGRESSION_SCRIPT = preload("res://scripts/progression_manager.gd")
+const ECHO_COIN_SCRIPT = preload("res://scripts/echo_coin.gd")
+const MAIN_MENU_SCENE = preload("res://ui/menus/main_menu.tscn")
+const PAUSE_MENU_SCENE = preload("res://ui/menus/pause_menu.tscn")
+const HELP_MENU_SCENE = preload("res://ui/menus/how_to_play.tscn")
+const PERSONALIZATION_SCENE = preload("res://ui/personalization/personalization.tscn")
+const PROFILE_PANEL_SCRIPT = preload("res://ui/menus/profile_panel.gd")
+const REWARD_NOTIFICATIONS_SCRIPT = preload("res://ui/shared/reward_notifications.gd")
 const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
 const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const BACKGROUND_MUSIC = preload("res://assets/in_the_dark.wav")
@@ -17,6 +25,7 @@ const SKYBOUND := {"name": "SKYBOUND", "description": "A high rebound launches y
 
 var world: Node2D
 var player
+var progression: Node
 var levels: Array = []
 var stage_index := 0
 var stage_offset := 0.0
@@ -58,9 +67,22 @@ var screen_instruction: Label
 var respawn_card: PanelContainer
 var respawn_title: Label
 var respawn_subtitle: Label
+var currency_label: Label
+var main_menu
+var pause_menu
+var help_menu
+var nexus
+var personalization
+var profile_panel
+var settings_panel
+var overlay_return_to: Node
+var show_menu_after_profile := false
 
 func _ready() -> void:
 	levels = make_levels()
+	progression = PROGRESSION_SCRIPT.new()
+	progression.name = "ProgressionManager"
+	add_child(progression)
 	create_background()
 	world = Node2D.new()
 	world.name = "LevelWorld"
@@ -76,6 +98,11 @@ func _ready() -> void:
 	create_sound_effects()
 	build_level(0)
 	show_menu()
+	if progression.display_name.is_empty():
+		main_menu.close_tree()
+		main_menu.hide()
+		show_menu_after_profile = true
+		open_secondary(profile_panel, null)
 
 func _process(delta: float) -> void:
 	if state == "playing":
@@ -85,6 +112,7 @@ func _process(delta: float) -> void:
 		if is_instance_valid(player):
 			camera.position.x = player.global_position.x + VIEW.x * 0.5 - PLAYER_SCREEN_X
 			furthest_x = maxf(furthest_x, player.global_position.x)
+			progression.report_run_distance(maxf(0.0, furthest_x - run_start_x))
 			if is_instance_valid(retiring_stage_root) and player.global_position.x > retire_stage_after_x:
 				retiring_stage_root.queue_free()
 				retiring_stage_root = null
@@ -264,10 +292,13 @@ func create_ui() -> void:
 
 	hud = Control.new()
 	hud.name = "HUD"
+	hud.size = VIEW
 	layer.add_child(hud)
 	info_label = make_label(hud, "", Vector2(24, 17), Vector2(560, 36), 22, Color("e4f2ff"))
 	stats_label = make_label(hud, "", Vector2(700, 20), Vector2(420, 30), 17, Color("ffd67f"))
 	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	currency_label = make_label(hud, "", Vector2(700, 48), Vector2(420, 26), 15, Color("ffce72"))
+	currency_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	tip_label = make_label(hud, "", Vector2(32, 606), Vector2(1090, 30), 18, Color("aab9df"))
 	tip_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_label = make_label(hud, "", Vector2(185, 62), Vector2(780, 42), 23, Color("ff8cd9"))
@@ -313,6 +344,59 @@ func create_ui() -> void:
 	var subtitle_font := SystemFont.new()
 	subtitle_font.font_names = PackedStringArray(["Georgia", "Times New Roman"])
 	respawn_subtitle.add_theme_font_override("font", subtitle_font)
+	var notifications = REWARD_NOTIFICATIONS_SCRIPT.new()
+	hud.add_child(notifications)
+	notifications.bind_progression(progression)
+
+	main_menu = MAIN_MENU_SCENE.instantiate()
+	layer.add_child(main_menu)
+	main_menu.first_welcome = progression.display_name.is_empty()
+	main_menu.bind_progression(progression)
+	main_menu.journey_requested.connect(begin_journey)
+	main_menu.nexus_requested.connect(func(): open_secondary(nexus, main_menu))
+	main_menu.personalization_requested.connect(func(): open_secondary(personalization, main_menu))
+	main_menu.help_requested.connect(func(): open_secondary(help_menu, main_menu))
+	main_menu.settings_requested.connect(func(): open_settings(main_menu))
+	main_menu.quit_requested.connect(quit_game)
+
+	pause_menu = PAUSE_MENU_SCENE.instantiate()
+	layer.add_child(pause_menu)
+	pause_menu.bind_progression(progression)
+	pause_menu.closed.connect(_on_pause_menu_closed)
+	pause_menu.nexus_requested.connect(func(): open_secondary(nexus, pause_menu))
+	pause_menu.personalization_requested.connect(func(): open_secondary(personalization, pause_menu))
+	pause_menu.restart_requested.connect(restart_journey)
+	pause_menu.quit_to_menu_requested.connect(return_to_main_menu)
+
+	help_menu = HELP_MENU_SCENE.instantiate()
+	layer.add_child(help_menu)
+	help_menu.bind_progression(progression)
+	help_menu.nexus_requested.connect(func(): open_secondary(nexus, help_menu))
+	help_menu.personalization_requested.connect(func(): open_secondary(personalization, help_menu))
+	help_menu.closed.connect(_restore_secondary_return)
+
+	nexus = load("res://ui/echo_nexus/echo_nexus.tscn").instantiate()
+	layer.add_child(nexus)
+	nexus.bind_progression(progression)
+	nexus.closed.connect(_restore_secondary_return)
+
+	personalization = PERSONALIZATION_SCENE.instantiate()
+	layer.add_child(personalization)
+	personalization.bind_progression(progression)
+	personalization.edit_name_requested.connect(func(): open_profile(personalization))
+	personalization.closed.connect(_restore_secondary_return)
+
+	profile_panel = PROFILE_PANEL_SCRIPT.new()
+	layer.add_child(profile_panel)
+	profile_panel.bind_progression(progression)
+	profile_panel.accepted.connect(_on_profile_accepted)
+	profile_panel.closed.connect(_restore_secondary_return)
+
+	settings_panel = PROFILE_PANEL_SCRIPT.new()
+	settings_panel.mode = "settings"
+	layer.add_child(settings_panel)
+	settings_panel.bind_progression(progression)
+	settings_panel.closed.connect(_restore_secondary_return)
 
 func make_label(parent: Node, txt: String, at: Vector2, size: Vector2, font_size: int, tint: Color) -> Label:
 	var label := Label.new()
@@ -335,7 +419,10 @@ func show_overlay(title: String, subtitle: String, instruction: String) -> void:
 
 func show_menu() -> void:
 	state = "menu"
-	show_overlay("R E B O U N D", "THE ENDLESS RUN\n\nJump through each giant gate and keep moving into the next stage.\nEvery fall gives you SKYBOUND.\nUse it once with P; it returns the next time you fall.", "A / D OR ARROWS: MOVE   •   SPACE: JUMP / BEGIN\nP: USE SKYBOUND")
+	shade.visible = false
+	hud.visible = false
+	main_menu.first_welcome = progression.display_name.is_empty()
+	main_menu.open_tree()
 
 func resume_game() -> void:
 	state = "playing"
@@ -346,6 +433,70 @@ func resume_game() -> void:
 		if player.active and not current_powerup.is_empty():
 			show_powerup_prompt()
 
+func open_secondary(overlay: Node, return_to: Node) -> void:
+	if is_instance_valid(return_to):
+		return_to.hide()
+	overlay_return_to = return_to
+	overlay.open_tree()
+
+func _restore_secondary_return() -> void:
+	var return_to := overlay_return_to
+	overlay_return_to = null
+	if is_instance_valid(return_to):
+		return_to.show()
+
+func open_profile(return_to: Node) -> void:
+	profile_panel.mode = "profile"
+	open_secondary(profile_panel, return_to)
+
+func open_settings(return_to: Node) -> void:
+	open_secondary(settings_panel, return_to)
+
+func _on_profile_accepted() -> void:
+	if show_menu_after_profile:
+		show_menu_after_profile = false
+		main_menu.first_welcome = true
+		main_menu.open_tree()
+
+func begin_journey() -> void:
+	if main_menu.visible:
+		main_menu.close_tree()
+	progression.start_run()
+	progression.enter_biome(str(levels[0]["biome"]))
+	resume_game()
+	message_label.text = str(levels[0]["narrative"])
+	message_timeout = 4.0
+
+func _on_pause_menu_closed() -> void:
+	if state == "paused":
+		resume_game()
+
+func restart_journey() -> void:
+	if pause_menu.visible:
+		pause_menu.close_tree()
+	if progression.run_tracker.active:
+		progression.end_run()
+	build_level(0)
+	progression.start_run()
+	progression.enter_biome(str(levels[0]["biome"]))
+	resume_game()
+
+func return_to_main_menu() -> void:
+	if pause_menu.visible:
+		pause_menu.close_tree()
+	if progression.run_tracker.active:
+		progression.report_run_distance(maxf(0.0, furthest_x - run_start_x))
+		progression.end_run()
+	build_level(0)
+	show_menu()
+
+func quit_game() -> void:
+	if progression.run_tracker.active:
+		progression.report_run_distance(maxf(0.0, furthest_x - run_start_x))
+		progression.end_run()
+	progression.save_progression()
+	get_tree().quit()
+
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key_event := event as InputEventKey
 	if key_event == null or not key_event.pressed or key_event.echo:
@@ -353,9 +504,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if key_event.keycode == KEY_ESCAPE:
 		if state == "playing":
 			state = "paused"
-			show_overlay("PAUSED", "Keep moving forward.", "PRESS SPACE TO RESUME")
-		elif state == "paused":
-			resume_game()
+			hud.visible = false
+			pause_menu.open_tree()
 		return
 	if key_event.keycode == KEY_P:
 		if state == "playing":
@@ -385,6 +535,7 @@ func build_level(index: int) -> void:
 	player.global_position = level_spawn
 	player.safe_position = level_spawn
 	player.modulate = Color(current_theme["player_tint"])
+	progression.bind_player(player)
 	# Level geometry is authored in a 1152x648 world-space viewport, with the
 	# platforms and player around y=450-570. Keep that area inside the camera.
 	camera.position = Vector2(level_spawn.x + VIEW.x * 0.5 - PLAYER_SCREEN_X, CAMERA_CENTER_Y)
@@ -416,6 +567,12 @@ func build_stage(index: int, offset: float, transition: bool, preview: bool = fa
 		)
 	for rect: Rect2 in data["hazards"]:
 		create_hazard(Rect2(rect.position + Vector2(offset, STAGE_VERTICAL_OFFSET), rect.size))
+	for coin_index in range(data["coin_positions"].size()):
+		var coin = ECHO_COIN_SCRIPT.new()
+		coin.configure(progression, "stage/%s/coin/%02d" % [data["coin_id"], coin_index + 1])
+		coin.position = data["coin_positions"][coin_index] + Vector2(offset, STAGE_VERTICAL_OFFSET)
+		stage_root.add_child(coin)
+		coin.picked_up.connect(_on_coin_picked_up)
 	var portal = GOAL_SCRIPT.new()
 	portal.position = data["goal"] + Vector2(offset, STAGE_VERTICAL_OFFSET - 70.0)
 	portal.scale = Vector2(1.7, 1.7)
@@ -560,6 +717,12 @@ func create_hazard(rect: Rect2) -> void:
 		spike.color = Color("ffacc6")
 		hazard.add_child(spike)
 
+func _on_coin_picked_up(_at: Vector2, amount: int) -> void:
+	play_sfx("powerup_pickup")
+	message_label.text = "+%d ECHO COINS" % amount
+	message_timeout = 1.0
+	update_stats()
+
 func on_player_died(safe_position: Vector2) -> void:
 	if state != "playing":
 		return
@@ -625,6 +788,11 @@ func on_goal_reached() -> void:
 func advance_stage() -> void:
 	if state != "playing":
 		return
+	var completed_stage_number := stage_index + 1
+	var ascension_completed := false
+	if completed_stage_number % levels.size() == 0:
+		var ascension_number := int(completed_stage_number / levels.size())
+		ascension_completed = progression.complete_challenge("ascension/skybound_%d" % ascension_number)
 	if is_instance_valid(retiring_stage_root):
 		retiring_stage_root.queue_free()
 	retiring_stage_root = active_stage_root
@@ -636,14 +804,18 @@ func advance_stage() -> void:
 	preview_stage_root = null
 	current_theme = next_data["theme"]
 	level_spawn = next_data["spawn"] + Vector2(stage_offset, STAGE_VERTICAL_OFFSET)
+	progression.enter_biome(str(next_data["biome"]))
 	apply_level_theme(current_theme, true)
 	play_level_music(stage_index)
 	if current_powerup.is_empty():
 		player.modulate = Color(current_theme["player_tint"])
 	tip_label.text = next_data["tip"]
 	prepare_next_stage()
-	message_label.text = "CHECKPOINT  •  STAGE %d" % (stage_index + 1)
-	message_timeout = 2.0
+	if ascension_completed:
+		message_label.text = "ASCENSION %d COMPLETE  •  THE ECHO REMEMBERS" % int(completed_stage_number / levels.size())
+	else:
+		message_label.text = str(next_data["narrative"])
+	message_timeout = 4.0
 	update_stats()
 
 func update_stats() -> void:
@@ -653,6 +825,7 @@ func update_stats() -> void:
 	info_label.text = "STAGE %d   •   %s" % [stage_index + 1, data["title"]]
 	var meters := int(maxf(0.0, furthest_x - run_start_x) / 100.0)
 	stats_label.text = "METERS  %05d     FALLS  %d" % [meters, falls]
+	currency_label.text = "ECHO COINS  %04d" % progression.get_coin_balance()
 
 func make_levels() -> Array:
 	return [
@@ -667,6 +840,10 @@ func make_levels() -> Array:
 				"platform_moving": "435878", "platform_moving_side": "263750", "platform_moving_highlight": "a3b8df",
 				"platform_moving_accent": "b1eeff", "platform_moving_rivet": "e1f4ff", "player_tint": "d7f3ff"
 			},
+			"biome": "echo_shore",
+			"coin_id": "first_fall",
+			"coin_positions": [Vector2(260, 515), Vector2(460, 470), Vector2(710, 415)],
+			"narrative": "The Echo is fractured. Your first fall is not the end.",
 			"spawn": Vector2(90, 542),
 			"goal": Vector2(1055, 418),
 			"platforms": [Rect2(0, 570, 250, 78), Rect2(330, 535, 138, 24), Rect2(548, 490, 132, 24), Rect2(765, 450, 387, 198)],
@@ -685,6 +862,10 @@ func make_levels() -> Array:
 				"platform_moving": "633574", "platform_moving_side": "351d49", "platform_moving_highlight": "f097d5",
 				"platform_moving_accent": "ffd27b", "platform_moving_rivet": "fff0c1", "player_tint": "ffd5c8"
 			},
+			"biome": "ember_rise",
+			"coin_id": "higher_before",
+			"coin_positions": [Vector2(265, 500), Vector2(565, 445), Vector2(850, 390)],
+			"narrative": "Each return leaves a stronger signal. Follow the light upward.",
 			"spawn": Vector2(95, 550),
 			"goal": Vector2(1060, 378),
 			"platforms": [Rect2(0, 570, 240, 78), Rect2(305, 535, 128, 24), Rect2(690, 450, 128, 24), Rect2(895, 410, 257, 238)],
@@ -703,6 +884,10 @@ func make_levels() -> Array:
 				"platform_moving": "275c69", "platform_moving_side": "153542", "platform_moving_highlight": "72d8d1",
 				"platform_moving_accent": "ff6477", "platform_moving_rivet": "ffd4d9", "player_tint": "baffdf"
 			},
+			"biome": "pulse_caverns",
+			"coin_id": "shattered_rhythm",
+			"coin_positions": [Vector2(270, 500), Vector2(590, 445), Vector2(850, 390)],
+			"narrative": "The old rhythm breaks. Find a new path through the fracture.",
 			"spawn": Vector2(95, 542),
 			"goal": Vector2(1060, 378),
 			"platforms": [Rect2(0, 570, 235, 78), Rect2(310, 535, 120, 24), Rect2(690, 450, 128, 24), Rect2(890, 410, 262, 238)],
@@ -721,6 +906,10 @@ func make_levels() -> Array:
 				"platform_moving": "62567f", "platform_moving_side": "39334f", "platform_moving_highlight": "c5a6ed",
 				"platform_moving_accent": "fff4b0", "platform_moving_rivet": "ffffff", "player_tint": "fff0bd"
 			},
+			"biome": "skybound_reach",
+			"coin_id": "the_fracture",
+			"coin_positions": [Vector2(260, 500), Vector2(610, 445), Vector2(960, 390)],
+			"narrative": "The Skybound gate is within reach. Rebound and ascend.",
 			"spawn": Vector2(75, 556),
 			"goal": Vector2(1060, 378),
 			"platforms": [Rect2(0, 570, 230, 78), Rect2(300, 535, 116, 24), Rect2(660, 450, 116, 24), Rect2(990, 410, 162, 238)],
