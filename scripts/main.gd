@@ -6,6 +6,7 @@ const PLAYER_SCRIPT = preload("res://scripts/player.gd")
 const GOAL_SCRIPT = preload("res://scripts/goal.gd")
 const HAZARD_SCRIPT = preload("res://scripts/hazard.gd")
 const MOVING_SCRIPT = preload("res://scripts/moving_platform.gd")
+const BOUNCE_PAD_SCRIPT = preload("res://scripts/bounce_pad.gd")
 const BACKGROUND_SHADER = preload("res://assets/nebula_background.gdshader")
 const PLATFORM_GLOW_SHADER = preload("res://assets/platform_glow.gdshader")
 const BACKGROUND_MUSIC = preload("res://assets/in_the_dark.wav")
@@ -562,8 +563,30 @@ func on_player_died(safe_position: Vector2) -> void:
 	if state != "playing":
 		return
 	play_sfx("death")
+	var fall_position: Vector2 = player.global_position if is_instance_valid(player) else safe_position
+	call_deferred("spawn_death_bounce_pads", fall_position)
 	# Defer physics-body changes so that Area2D collision callbacks stay safe.
 	call_deferred("finish_respawn", safe_position)
+
+func spawn_death_bounce_pads(fall_position: Vector2) -> void:
+	if not is_instance_valid(active_stage_root):
+		return
+	var existing_pads: Array[Node] = []
+	for child in active_stage_root.get_children():
+		if child.is_in_group("death_bounce_pad"):
+			existing_pads.append(child)
+	while existing_pads.size() > 6:
+		existing_pads.pop_front().queue_free()
+	for _index in range(2):
+		var pad = BOUNCE_PAD_SCRIPT.new()
+		pad.position = Vector2(fall_position.x + randf_range(-78.0, 78.0), randf_range(696.0, 710.0))
+		pad.rotation = randf_range(-0.22, 0.22)
+		pad.rotation_speed = randf_range(-0.8, 0.8)
+		pad.orbit_radius = randf_range(10.0, 24.0)
+		pad.orbit_speed = randf_range(-0.9, 0.9)
+		pad.orbit_phase = randf_range(0.0, TAU)
+		pad.glow_color = Color(current_theme["platform_accent"])
+		active_stage_root.add_child(pad)
 
 func finish_respawn(_safe_position: Vector2) -> void:
 	if state != "playing" or not is_instance_valid(player):
