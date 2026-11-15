@@ -1,6 +1,6 @@
 # REBOUND — The Art of Falling Forward
 
-An original Godot 4.x 2D hackathon starter game. It has four playable levels, procedural neon-styled visuals, moving platforms, hazards, spring-based failure progression, a menu, a pause state, a win screen, and run statistics.
+An original Godot 4.x 2D puzzle-platformer. It has four increasingly difficult stages, procedural neon visuals and original looping music, moving platforms, hazards, large gates with the next stage visible beyond them, a menu, a pause state, and run statistics.
 
 ## Open in Godot
 
@@ -14,11 +14,12 @@ An original Godot 4.x 2D hackathon starter game. It has four playable levels, pr
 - A/D or Left/Right: move
 - Space: jump / proceed from menus
 - Escape: pause/resume
-- Fall off the bottom or hit a danger strip to create a spring at your most recent grounded position.
-- Maximum of three springs remain; when you make another, the oldest disappears.
+- Every fall restores one Skybound power-up.
+- Press P once to use Skybound; it returns when you fall again.
+- Jump through the large gate to continue directly onto the next stage.
 
 ## Important scripts
-- `scripts/main.gd`: levels, UI, menus, platforms, spring spawning, death and progression
+- `scripts/main.gd`: levels, UI, menus, platforms, Skybound power-up, procedural music, and progression
 - `scripts/player.gd`: physics, input, coyote time, bouncing
 - `scripts/spring.gd`: glowing spring that launches player
 - `scripts/goal.gd`: gold level exit
